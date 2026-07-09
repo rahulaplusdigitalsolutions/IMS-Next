@@ -1,0 +1,330 @@
+"use client";
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { PackageSearch, Search, Layers, TrendingUp, AlertTriangle, FileDown, Loader2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { inventoryService } from '@/lib/services/inventoryService';
+import Swal from 'sweetalert2';
+
+const CurrentStock = () => {
+  const [stockData, setStockData] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [activeBrandId, setActiveBrandId] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [globalValue, setGlobalValue] = useState(0);
+  const [globalLowStock, setGlobalLowStock] = useState(0);
+
+  useEffect(() => {
+    fetchBrands();
+  }, []);
+
+  useEffect(() => {
+    fetchCurrentStock(currentPage, pageSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, pageSize, activeBrandId, searchTerm]);
+
+  const fetchBrands = async () => {
+    try {
+      const data = await inventoryService.getBrands();
+      setBrands(data || []);
+    } catch (error) {
+      console.error("Error fetching brands:", error);
+    }
+  };
+
+  const fetchCurrentStock = async (page = currentPage, limit = pageSize) => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL || ""}/Inventory/GetCurrentStock`, {
+        params: { 
+          page, 
+          limit,
+          brandId: activeBrandId,
+          search: searchTerm
+        },
+        headers: { Authorization: `Bearer ${localStorage.getItem("pt_auth_token")}` }
+      });
+      setStockData(response.data?.data || []);
+      setTotalRecords(response.data?.total || 0);
+      setGlobalValue(response.data?.totalValue || 0);
+      setGlobalLowStock(response.data?.lowStockCount || 0);
+    } catch (error) {
+      console.error("Error fetching stock:", error);
+      Swal.fire("Error", "Failed to load current stock", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (stockData.length === 0) {
+      Swal.fire("No Data", "No stock information to export", "warning");
+      return;
+    }
+    
+    const reportData = stockData.map(item => ({
+      "Item Name": item.itemName,
+      "Variant": item.variantName,
+      "SKU": item.sku || 'N/A',
+      "Available Qty": item.availablePCS || 0,
+      "Purchase Rate": item.avgPurchaseRate,
+      "Total Value": item.totalValue
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(reportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "CurrentStock_Report");
+    XLSX.writeFile(wb, `CurrentStock_${new Date().toISOString().split('T')[0]}.xlsx`);
+    
+    Swal.fire("Exported", "Current stock report downloaded", "success");
+  };
+
+  // Reset page when brand or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeBrandId, searchTerm]);
+
+
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
+  return (
+    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
+            <Layers className="text-indigo-600" size={28} />
+            Current Stock Overview
+          </h2>
+          <p className="text-slate-500 font-medium mt-1">
+            Real-time inventory levels and valuation across all items.
+          </p>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-100 p-5 rounded-2xl flex items-center gap-4">
+          <div className="bg-white p-3 rounded-xl shadow-sm text-indigo-600">
+            <Layers size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-500 uppercase tracking-wide">Total Variants</p>
+            <p className="text-2xl font-black text-slate-800">{totalRecords}</p>
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 p-5 rounded-2xl flex items-center gap-4">
+          <div className="bg-white p-3 rounded-xl shadow-sm text-emerald-600">
+            <TrendingUp size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-500 uppercase tracking-wide">Total Valuation</p>
+            <p className="text-2xl font-black text-slate-800">{formatCurrency(globalValue)}</p>
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-100 p-5 rounded-2xl flex items-center gap-4">
+          <div className="bg-white p-3 rounded-xl shadow-sm text-rose-600">
+            <AlertTriangle size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-bold text-slate-500 uppercase tracking-wide">Low Stock Alerts</p>
+            <p className="text-2xl font-black text-slate-800">{globalLowStock}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2 scrollbar-hide">
+         <button
+           onClick={() => setActiveBrandId("all")}
+           className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all whitespace-nowrap ${
+             activeBrandId === "all" 
+             ? "bg-slate-800 text-white shadow-lg shadow-slate-200" 
+             : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+           }`}
+         >
+           All Stock
+         </button>
+         {brands.map((brand) => (
+           <button
+             key={brand.brandId}
+             onClick={() => setActiveBrandId(brand.brandId)}
+             className={`px-6 py-2.5 rounded-xl text-sm font-black transition-all whitespace-nowrap ${
+               activeBrandId === brand.brandId 
+               ? "bg-indigo-600 text-white shadow-lg shadow-indigo-100" 
+               : "bg-slate-50 text-slate-500 hover:bg-slate-100 border border-transparent"
+             }`}
+           >
+             {brand.brandName}
+           </button>
+         ))}
+      </div>
+
+      {/* Search & Filter */}
+      <div className="flex flex-col md:flex-row gap-4 mb-6 items-center">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+          <input
+            type="text"
+            placeholder="Search by Item Name, Variant Name, or SKU..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
+          />
+        </div>
+        <button 
+          onClick={handleExportExcel}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-md shadow-emerald-100 shrink-0 w-full md:w-auto justify-center"
+        >
+          <FileDown size={20} />
+          Export All Stock
+        </button>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto rounded-2xl border border-slate-200">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider">Sr. No.</th>
+              <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider">Item Name</th>
+              <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider">Variant</th>
+              <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider">SKU</th>
+              <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider text-right">Available Qty</th>
+              <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider text-right">Purchase Rate</th>
+              <th className="p-4 text-xs font-black text-slate-500 uppercase tracking-wider text-right">Total Value</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {loading ? (
+              <tr>
+                <td colSpan="7" className="p-8 text-center">
+                  <div className="flex justify-center">
+                    <div className="animate-spin w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full"></div>
+                  </div>
+                </td>
+              </tr>
+            ) : stockData.length === 0 ? (
+              <tr>
+                <td colSpan="7" className="p-8 text-center">
+                  <div className="flex flex-col items-center justify-center text-slate-400">
+                    <PackageSearch size={48} className="mb-3 opacity-20" />
+                    <p className="font-medium">No stock data found</p>
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              stockData.map((item, index) => (
+                <tr key={item.itemVariantId || index} className="hover:bg-slate-50 transition-colors">
+                  <td className="p-4 text-sm text-slate-600">{(currentPage - 1) * pageSize + index + 1}</td>
+                  <td className="p-4">
+                    <span className="font-bold text-slate-800">{item.itemName}</span>
+                  </td>
+                  <td className="p-4">
+                    <span className="font-medium text-slate-600">{item.variantName}</span>
+                  </td>
+                  <td className="p-4">
+                    <span className="inline-flex items-center px-2 py-1 rounded bg-slate-100 text-slate-600 text-xs font-bold">
+                      {item.sku || 'N/A'}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    <span className={`inline-flex items-center justify-center min-w-[3rem] px-2 py-1 rounded-lg text-sm font-black ${
+                      item.availablePCS <= 0 ? 'bg-rose-100 text-rose-700'
+                      : item.availablePCS < 5 ? 'bg-orange-100 text-orange-700'
+                      : 'bg-emerald-100 text-emerald-700'
+                    }`}>
+                      {item.availablePCS || 0}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    <span className="font-medium text-slate-600">
+                      {formatCurrency(item.avgPurchaseRate)}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    <span className="font-bold text-indigo-600">
+                      {formatCurrency(item.totalValue)}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      {/* Pagination Controls */}
+      {totalRecords > 0 && (
+        <div className="bg-slate-50 border-t border-slate-200 px-6 py-4 flex flex-wrap items-center justify-between gap-4 mt-4 rounded-b-2xl">
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-slate-500 font-medium">
+              Showing <span className="font-bold text-slate-700">{(currentPage - 1) * pageSize + 1}</span> to <span className="font-bold text-slate-700">{Math.min(currentPage * pageSize, totalRecords)}</span> of <span className="font-bold text-slate-700">{totalRecords}</span> entries
+            </span>
+            <div className="flex items-center gap-2">
+              <select 
+                className="bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-slate-600 outline-none focus:border-indigo-400 transition-all cursor-pointer"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+              >
+                {[5, 10, 25, 50, 100].map(val => (
+                  <option key={val} value={val}>{val} per page</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(prev => prev - 1)}
+              className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-white hover:text-indigo-600 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, Math.ceil(totalRecords / pageSize)) }, (_, i) => {
+                 const pageNum = i + 1;
+                 return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`w-10 h-10 rounded-lg text-sm font-bold transition-all ${
+                      currentPage === pageNum ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' : 'text-slate-600 hover:bg-white hover:text-indigo-600'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                 );
+              })}
+            </div>
+            <button 
+              disabled={currentPage >= Math.ceil(totalRecords / pageSize)}
+              onClick={() => setCurrentPage(prev => prev + 1)}
+              className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-white hover:text-indigo-600 disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default CurrentStock;
+

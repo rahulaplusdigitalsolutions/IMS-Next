@@ -1,0 +1,21 @@
+import { NextResponse } from "next/server";
+import { v4 as uuidv4 } from "uuid";
+import { mysqlPool } from "@/lib/db";
+import { authenticateRequest, requireAuth } from "@/lib/auth";
+import { authorizeInventory } from "@/lib/inventoryAuth";
+import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
+
+export const POST = withErrorHandling(async (request) => {
+  const body = await parseJsonBody(request);
+  const user = await authenticateRequest(request);
+  authorizeInventory(user, "POST");
+  requireAuth(user);
+
+  const { BarcodeId, ItemVariantId, Barcode, SubUnitQty } = body;
+  if (BarcodeId && BarcodeId !== "0" && BarcodeId !== "") {
+    await mysqlPool.execute("UPDATE inventoryvariantbarcode SET barcode = ?, subUnitQty = ? WHERE barcodeId = ?", [Barcode, SubUnitQty, BarcodeId]);
+  } else {
+    await mysqlPool.execute("INSERT INTO inventoryvariantbarcode (barcodeId, itemVariantId, barcode, subUnitQty) VALUES (?, ?, ?, ?)", [uuidv4(), ItemVariantId, Barcode, SubUnitQty]);
+  }
+  return NextResponse.json({ message: "Success" });
+});

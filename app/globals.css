@@ -1,0 +1,161 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes fade-in-soft {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-right-soft {
+  from {
+    opacity: 0;
+    transform: translate3d(24px, 0, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes slide-in-left-soft {
+  from {
+    opacity: 0;
+    transform: translate3d(-18px, 0, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    transform: translate3d(0, -8px, 0);
+  }
+}
+
+@keyframes glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.12);
+  }
+
+  50% {
+    box-shadow: 0 0 0 10px rgba(79, 70, 229, 0);
+  }
+}
+
+.animate-page-enter {
+  animation: fade-up 0.52s cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+
+.animate-soft-fade {
+  animation: fade-in-soft 0.45s ease-out;
+  animation-fill-mode: both;
+}
+
+.animate-toast-in {
+  animation: slide-in-right-soft 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+
+.animate-sidebar-in {
+  animation: slide-in-left-soft 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+
+.animate-float-soft {
+  animation: float-soft 5.5s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2.8s ease-in-out infinite;
+}
+
+.stagger-1 {
+  animation-delay: 0.05s;
+}
+
+.stagger-2 {
+  animation-delay: 0.1s;
+}
+
+.stagger-3 {
+  animation-delay: 0.15s;
+}
+
+.stagger-4 {
+  animation-delay: 0.2s;
+}
+
+.stagger-5 {
+  animation-delay: 0.25s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Priority Highlighting Classes - Support Variable Intensity */
+.priority-red { background-color: rgba(239, 68, 68, var(--row-opacity, 0.15)) !important; }
+.priority-yellow { background-color: rgba(245, 158, 11, var(--row-opacity, 0.15)) !important; }
+.priority-green { background-color: rgba(16, 185, 129, var(--row-opacity, 0.15)) !important; }
+.priority-blue { background-color: rgba(59, 130, 246, var(--row-opacity, 0.15)) !important; }
+.priority-indigo { background-color: rgba(99, 102, 241, var(--row-opacity, 0.15)) !important; }
+.priority-purple { background-color: rgba(139, 92, 246, var(--row-opacity, 0.15)) !important; }
+
+/* Table row specific indicators - Stronger borders */
+tr.priority-red { border-left: 6px solid #ef4444 !important; }
+tr.priority-yellow { border-left: 6px solid #f59e0b !important; }
+tr.priority-green { border-left: 6px solid #10b981 !important; }
+tr.priority-blue { border-left: 6px solid #3b82f6 !important; }
+tr.priority-indigo { border-left: 6px solid #6366f1 !important; }
+tr.priority-purple { border-left: 6px solid #8b5cf6 !important; }
+
+/* Table cell adjustments for priority rows */
+tr[class*="priority-"] td {
+  background-color: transparent !important;
+  font-weight: 500; /* Slightly bolder text for visibility */
+}
+
+/* Maintain hover effect with even more intensity */
+tr.priority-red:hover { background-color: #fecaca !important; }
+tr.priority-yellow:hover { background-color: #fde68a !important; }
+tr.priority-green:hover { background-color: #bbf7d0 !important; }
+tr.priority-blue:hover { background-color: #bfdbfe !important; }
+tr.priority-indigo:hover { background-color: #c7d2fe !important; }
+tr.priority-purple:hover { background-color: #e9d5ff !important; }
+

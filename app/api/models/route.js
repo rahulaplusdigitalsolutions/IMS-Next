@@ -1,0 +1,57 @@
+import { NextResponse } from "next/server";
+import { mysqlPool } from "@/lib/db";
+import { authenticateRequest, authorizeReadWrite, ALL_AUTHENTICATED_ROLES, ApiError } from "@/lib/auth";
+import { logUserActivity } from "@/lib/helpers";
+import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
+
+// Mounted behind `authorizeReadWrite({ readRoles: allRoles, writeRoles: ["Admin","User","Operator"],
+// deleteRoles: ["Admin"], editColumnName: "allow_edit_models" })` in Backend4/index.js.
+const authorize = (user, method) =>
+  authorizeReadWrite(user, method, {
+    readRoles: ALL_AUTHENTICATED_ROLES,
+    writeRoles: ["Admin", "User", "Operator"],
+    deleteRoles: ["Admin"],
+    denyMessage: "Only Admin or Operators can manage models.",
+    editColumnName: "allow_edit_models",
+  });
+
+export const GET = withErrorHandling(async (request) => {
+  const user = await authenticateRequest(request);
+  authorize(user, "GET");
+
+  const [rows] = await mysqlPool.query(`
+    SELECT m.*, m.guid as id, m.\`ssd/hdd\` AS ssd,
+      IFNULL(stock.availableCount,0) as stockCount,
+      (SELECT landingPrice FROM serials WHERE modelGuid=m.guid AND isDeleted=0 ORDER BY createdAt DESC LIMIT 1) as lastLandingPrice
+    FROM models m
+    LEFT JOIN (
+      SELECT modelGuid, COUNT(*) as availableCount FROM serials
+      WHERE status='Available' AND isDeleted=0 GROUP BY modelGuid
+    ) stock ON stock.modelGuid=m.guid
+    WHERE m.isDeleted=0
+    ORDER BY m.name ASC
+  `);
+  return NextResponse.json(rows);
+});
+
+export const POST = withErrorHandling(async (request) => {
+  const user = await authenticateRequest(request);
+  authorize(user, "POST");
+
+  const { name, company, category, colorType, printerType, description, mrp, isSerialized, stockQuantity, packagingCost, mainCategory, cpu, ram, ssd, barcode, screenSize, resolution, panelType, refreshRate } = await parseJsonBody(request);
+
+  if (name) {
+    const [dup] = await mysqlPool.query("SELECT guid FROM models WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND isDeleted=0", [name]);
+    if (dup.length > 0) throw new ApiError(400, "A model with this name already exists.");
+  }
+  if (barcode && barcode.trim()) {
+    const [bDup] = await mysqlPool.query("SELECT guid FROM models WHERE barcode=? AND isDeleted=0", [barcode.trim()]);
+    if (bDup.length > 0) throw new ApiError(400, "This barcode is already assigned to another model.");
+  }
+  await mysqlPool.query(
+    "INSERT INTO models (guid,name,company,category,colorType,printerType,description,mrp,isSerialized,stockQuantity,packagingCost,mainCategory,cpu,ram,`ssd/hdd`,barcode,screenSize,resolution,panelType,refreshRate,isDeleted) VALUES (UUID(),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+    [name, company, category, colorType || "Monochrome", printerType || "Multi-Function", description, mrp || 0, isSerialized !== false, stockQuantity || 0, packagingCost || 0, mainCategory || "Printer", cpu || null, ram || null, ssd || null, barcode?.trim() || null, screenSize || null, resolution || null, panelType || null, refreshRate || null]
+  );
+  await logUserActivity(mysqlPool, user, "Add Model", [{ field: "name", newValue: name }], request.headers.get("x-forwarded-for") || null);
+  return NextResponse.json({ message: "Model added" });
+});

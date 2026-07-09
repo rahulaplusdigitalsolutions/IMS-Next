@@ -1,0 +1,122 @@
+import { NextResponse } from "next/server";
+import { mysqlPool } from "@/lib/db";
+import { authenticateRequest, ApiError } from "@/lib/auth";
+import { authorizeFbfFba, resolveModelId } from "@/lib/fbfFbaAuth";
+import { recordSerialMovement } from "@/lib/helpers";
+import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
+
+// Sell / Out Functionality (FIFO Logic, or specific serials if provided)
+export const POST = withErrorHandling(async (request) => {
+  const body = await parseJsonBody(request);
+  const user = await authenticateRequest(request);
+  authorizeFbfFba(user, "POST");
+
+  const { modelGuid, itemId, type, quantity, amount, transactionDate, referenceId, createdBy, warehouseGuid } = body;
+  const requestedSerialNumbers = Array.isArray(body.serialNumbers)
+    ? body.serialNumbers.map((s) => String(s).trim()).filter(Boolean)
+    : (body.serialNumber ? [String(body.serialNumber).trim()] : []);
+  const itemKind = body.itemKind || (itemId ? "nonSerialized" : "serialized");
+  const isSerialized = itemKind === "serialized";
+  const safeItemId = isSerialized ? null : String(itemId || "").trim();
+  const safeQuantity = Number(quantity);
+  const safeAmount = amount === null || amount === undefined || amount === "" ? null : Number(amount);
+  const safeTransactionDate = transactionDate ? new Date(transactionDate) : new Date();
+
+  if (safeAmount !== null && (!Number.isFinite(safeAmount) || safeAmount < 0)) throw new ApiError(400, "Amount must be a valid positive number");
+  if (Number.isNaN(safeTransactionDate.getTime())) throw new ApiError(400, "Invalid sell out date");
+
+  const connection = await mysqlPool.getConnection();
+  try {
+    const safeModelId = isSerialized ? await resolveModelId(connection, modelGuid) : null;
+
+    if (isSerialized && !safeModelId) throw new ApiError(400, "Model is required for serialized stock");
+    if (!isSerialized && !safeItemId) throw new ApiError(400, "Item is required for non-serialized stock");
+    if (!Number.isFinite(safeQuantity) || safeQuantity <= 0) throw new ApiError(400, "Quantity must be greater than zero");
+    if (requestedSerialNumbers.length > 0 && requestedSerialNumbers.length !== safeQuantity) {
+      throw new ApiError(400, `You specified ${requestedSerialNumbers.length} serial(s) but quantity is ${safeQuantity}. They must match.`);
+    }
+
+    await connection.beginTransaction();
+
+    const [stock] = isSerialized
+      ? await connection.query("SELECT quantity FROM fbf_fba_stock WHERE modelGuid = ? AND type = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL)) FOR UPDATE", [safeModelId, type, warehouseGuid || null, warehouseGuid || null])
+      : await connection.query("SELECT quantity FROM fbf_fba_stock WHERE itemKind = 'nonSerialized' AND itemId = ? AND type = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL)) FOR UPDATE", [safeItemId, type, warehouseGuid || null, warehouseGuid || null]);
+
+    if (!stock[0] || stock[0].quantity < safeQuantity) {
+      throw new Error("Insufficient stock in " + type);
+    }
+
+    let soldSerials = [];
+    if (isSerialized) {
+      const [model] = await connection.query("SELECT isSerialized FROM models WHERE guid = ?", [safeModelId]);
+
+      let availableSerials;
+      if (requestedSerialNumbers.length > 0) {
+        const [matched] = await connection.query(`
+          SELECT guid, value FROM serials
+          WHERE modelGuid = ? AND status = ? AND isDeleted = 0 AND value IN (?)
+          FOR UPDATE
+        `, [safeModelId, type, requestedSerialNumbers]);
+        if (matched.length !== requestedSerialNumbers.length) {
+          const found = new Set(matched.map((s) => s.value));
+          const missing = requestedSerialNumbers.filter((sn) => !found.has(sn));
+          throw new Error(`These serials are not currently in ${type} for this model: ${missing.join(", ")}`);
+        }
+        availableSerials = matched;
+      } else {
+        const [fifo] = await connection.query(`
+          SELECT guid, value FROM serials
+          WHERE modelGuid = ? AND status = ? AND isDeleted = 0
+          ORDER BY createdAt ASC LIMIT ?
+          FOR UPDATE
+        `, [safeModelId, type, safeQuantity]);
+        availableSerials = fifo;
+      }
+
+      if (model[0]?.isSerialized && availableSerials.length < safeQuantity) throw new Error("Not enough serialized units found");
+
+      soldSerials = availableSerials.map((s) => s.value);
+      const serialIds = availableSerials.map((s) => s.guid);
+
+      await connection.query("UPDATE serials SET status = 'Sold' WHERE guid IN (?)", [serialIds]);
+
+      for (const sObj of availableSerials) {
+        await recordSerialMovement(connection, {
+          serialNumberGuid: sObj.guid,
+          serialValue: sObj.value,
+          actionType: "Sold",
+          status: "Sold",
+          notes: `Sold via ${type} (Ref: ${referenceId})`,
+          createdBy,
+        });
+      }
+    }
+
+    if (isSerialized) {
+      await connection.query("UPDATE fbf_fba_stock SET quantity = quantity - ? WHERE modelGuid = ? AND type = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL))", [safeQuantity, safeModelId, type, warehouseGuid || null, warehouseGuid || null]);
+    } else {
+      await connection.query("UPDATE fbf_fba_stock SET quantity = quantity - ? WHERE itemKind = 'nonSerialized' AND itemId = ? AND type = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL))", [safeQuantity, safeItemId, type, warehouseGuid || null, warehouseGuid || null]);
+    }
+
+    if (isSerialized) {
+      await connection.query(`
+        INSERT INTO fbf_fba_transactions (guid, modelGuid, itemId, itemKind, type, warehouseGuid, transactionType, quantity, amount, transactionDate, referenceId, serialNumbers, createdBy)
+        VALUES (UUID(), ?, NULL, 'serialized', ?, ?, 'OUT', ?, ?, ?, ?, ?, ?)
+      `, [safeModelId, type, warehouseGuid || null, safeQuantity, safeAmount, safeTransactionDate, referenceId, JSON.stringify(soldSerials), createdBy]);
+    } else {
+      await connection.query(`
+        INSERT INTO fbf_fba_transactions (guid, modelGuid, itemId, itemKind, type, warehouseGuid, transactionType, quantity, amount, transactionDate, referenceId, serialNumbers, createdBy)
+        VALUES (UUID(), NULL, ?, 'nonSerialized', ?, ?, 'OUT', ?, ?, ?, ?, ?, ?)
+      `, [safeItemId || null, type, warehouseGuid || null, safeQuantity, safeAmount, safeTransactionDate, referenceId, JSON.stringify(soldSerials), createdBy]);
+    }
+
+    await connection.commit();
+    return NextResponse.json({ message: "Stock updated successfully", soldSerials });
+  } catch (err) {
+    await connection.rollback();
+    if (err instanceof ApiError) throw err;
+    return NextResponse.json({ message: err.message }, { status: 500 });
+  } finally {
+    connection.release();
+  }
+});
