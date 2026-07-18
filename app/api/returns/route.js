@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, ApiError } from "@/lib/auth";
+import { authenticateRequest, ApiError, requireCompany, resolveScopedCompanyGuid } from "@/lib/auth";
 import { authorizeReturns } from "@/lib/returnsAuth";
 import { recordSerialMovement } from "@/lib/helpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
+import { broadcastRealtimeEvent } from "@/lib/realtimeEvents";
 
 export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeReturns(user, "GET");
+
+  const cid = resolveScopedCompanyGuid(user, request);
+  const c = (alias) => (cid ? `AND ${alias}.companyGuid=?` : "");
+  const w = (alias) => (cid ? `AND ${alias}.companyGuid=?` : "");
 
   const [printerRows] = await mysqlPool.query(`
     SELECT r.guid as id, r.serialNumberGuid as serialNumberId,
@@ -16,9 +22,9 @@ export const GET = withErrorHandling(async (request) => {
            r.condition, r.returnDate, r.returnedBy, r.platform AS firmName, r.orderid AS customerName,
            r.reason, r.repairCost, r.returnCount, r.dispatchGuid, m.name as modelName,
            0 as refundAmount, r.rowColor, r.tags
-    FROM returns r LEFT JOIN serials s ON r.serialNumberGuid=s.guid LEFT JOIN models m ON s.modelGuid=m.guid
-    WHERE r.isDeleted=0
-  `);
+    FROM returns r LEFT JOIN serials s ON r.serialNumberGuid=s.guid ${c("s")} LEFT JOIN models m ON s.modelGuid=m.guid ${c("m")}
+    WHERE r.isDeleted=0 ${w("r")}
+  `, cid ? [cid, cid, cid] : []);
   const [stationeryRows] = await mysqlPool.query(`
     SELECT r.returnId as id, r.stockOutId as dispatchId, r.originalItemSent as serialValue,
            IF(r.isConditionCorrect=1,'Correct','Damaged') as \`condition\`,
@@ -26,16 +32,19 @@ export const GET = withErrorHandling(async (request) => {
            o.platformId as firmName, COALESCE(o.orderId,o.issuedBy,'Unknown') as customerName,
            r.compensationAmount as refundAmount, r.remarks as reason,
            'Stationery' as modelName, 0 as repairCost, 1 as returnCount, r.rowColor, r.tags
-    FROM inventorystationeryreturns r LEFT JOIN inventorystockout o ON r.stockOutId=o.stockOutId
-    WHERE r.isDeleted=0
-  `);
+    FROM inventorystationeryreturns r LEFT JOIN inventorystockout o ON r.stockOutId=o.stockOutId ${c("o")}
+    WHERE r.isDeleted=0 ${w("r")}
+  `, cid ? [cid, cid] : []);
   const all = [...printerRows, ...stationeryRows].sort((a, b) => new Date(b.returnDate) - new Date(a.returnDate));
   return NextResponse.json(all);
 });
 
 export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeReturns(user, "POST");
+
+  const cid = user.companyId;
 
   const { serialNumber, serialValue, condition, returnDate, returnedBy, dispatchId, reason } = await parseJsonBody(request);
   const trimmed = String(serialNumber || serialValue || "").trim();
@@ -47,8 +56,8 @@ export const POST = withErrorHandling(async (request) => {
     await conn.beginTransaction();
 
     const [serialCheck] = await conn.query(
-      "SELECT s.guid, s.status, s.modelGuid, s.value as serialValue, s.returnCount, m.name as modelName FROM serials s JOIN models m ON s.modelGuid=m.guid WHERE UPPER(s.value)=? AND s.isDeleted=0 FOR UPDATE",
-      [trimmed.toUpperCase()]
+      "SELECT s.guid, s.status, s.modelGuid, s.value as serialValue, s.returnCount, m.name as modelName FROM serials s JOIN models m ON s.modelGuid=m.guid AND m.companyGuid=? WHERE UPPER(s.value)=? AND s.isDeleted=0 AND s.companyGuid=? FOR UPDATE",
+      [cid, trimmed.toUpperCase(), cid]
     );
     if (!serialCheck.length) { await conn.rollback(); throw new ApiError(404, `Serial number "${trimmed}" not found`); }
     const serial = serialCheck[0];
@@ -63,9 +72,9 @@ export const POST = withErrorHandling(async (request) => {
     else if (finalCondition === "Damaged") { newStatus = "Damaged"; }
 
     let dQuery = `SELECT oi.guid, o.dispatchDate, o.platform AS firmName, o.orderid AS customerName, o.invoiceNumber, o.status as orderStatus, ol.logisticsStatus
-      FROM order_items oi JOIN orders o ON oi.orderGuid=o.guid LEFT JOIN order_logistics ol ON o.guid=ol.orderGuid
-      WHERE oi.serialNumberGuid=? AND o.isDeleted=0 AND o.status NOT IN ('Returned','Order Cancelled','Partially Returned')`;
-    const dParams = [serial.guid];
+      FROM order_items oi JOIN orders o ON oi.orderGuid=o.guid AND o.companyGuid=? LEFT JOIN order_logistics ol ON o.guid=ol.orderGuid AND ol.companyGuid=?
+      WHERE oi.serialNumberGuid=? AND o.isDeleted=0 AND oi.companyGuid=? AND o.status NOT IN ('Returned','Order Cancelled','Partially Returned')`;
+    const dParams = [cid, cid, serial.guid, cid];
     if (dispatchId) { dQuery += " AND oi.guid=?"; dParams.push(dispatchId); }
     dQuery += " ORDER BY o.dispatchDate DESC, oi.guid DESC LIMIT 1";
 
@@ -73,32 +82,32 @@ export const POST = withErrorHandling(async (request) => {
     const dispatch = dispatchInfo[0] || null;
     if (!dispatch?.guid) { await conn.rollback(); throw new ApiError(400, "No linked order found for this serial"); }
 
-    const [dupCheck] = await conn.query("SELECT guid FROM returns WHERE serialNumberGuid=? AND dispatchGuid=? AND isDeleted=0 LIMIT 1", [serial.guid, dispatch.guid]);
+    const [dupCheck] = await conn.query("SELECT guid FROM returns WHERE serialNumberGuid=? AND dispatchGuid=? AND isDeleted=0 AND companyGuid=? LIMIT 1", [serial.guid, dispatch.guid, cid]);
     if (dupCheck.length > 0) { await conn.rollback(); throw new ApiError(400, `Return already recorded for order #${dispatch.guid}`); }
 
-    const [countCheck] = await conn.query("SELECT COUNT(*) as total FROM returns WHERE serialNumberGuid=? AND isDeleted=0", [serial.guid]);
+    const [countCheck] = await conn.query("SELECT COUNT(*) as total FROM returns WHERE serialNumberGuid=? AND isDeleted=0 AND companyGuid=?", [serial.guid, cid]);
     const returnCount = (countCheck[0].total || 0) + 1;
 
     const returnGuid = randomUUID();
     await conn.query(
-      "INSERT INTO returns (guid,serialNumberGuid,serialValue,`condition`,returnDate,returnedBy,platform,orderid,returnCount,isDeleted,dispatchGuid,invoiceNumber,reason) VALUES (?,?,?,?,?,?,?,?,?,0,?,?,?)",
-      [returnGuid, serial.guid, trimmed, finalCondition, returnDate ? new Date(returnDate) : new Date(), returnedBy || "System",
+      "INSERT INTO returns (guid,companyGuid,serialNumberGuid,serialValue,`condition`,returnDate,returnedBy,platform,orderid,returnCount,isDeleted,dispatchGuid,invoiceNumber,reason) VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?)",
+      [returnGuid, cid, serial.guid, trimmed, finalCondition, returnDate ? new Date(returnDate) : new Date(), returnedBy || "System",
         dispatch.firmName || null, dispatch.customerName || null, returnCount, dispatch.guid, dispatch.invoiceNumber || null, String(reason || "").trim()]
     );
 
-    await conn.query("UPDATE serials SET status=?, returnCount=? WHERE guid=?", [newStatus, returnCount, serial.guid]);
+    await conn.query("UPDATE serials SET status=?, returnCount=? WHERE guid=? AND companyGuid=?", [newStatus, returnCount, serial.guid, cid]);
 
-    const [itemCheck] = await conn.query("SELECT orderGuid FROM order_items WHERE guid=?", [dispatch.guid]);
+    const [itemCheck] = await conn.query("SELECT orderGuid FROM order_items WHERE guid=? AND companyGuid=?", [dispatch.guid, cid]);
     if (itemCheck.length) {
       const orderGuid = itemCheck[0].orderGuid;
-      const [total] = await conn.query("SELECT COUNT(*) as total FROM order_items WHERE orderGuid=?", [orderGuid]);
-      const [returned] = await conn.query("SELECT COUNT(DISTINCT serialNumberGuid) as total FROM returns WHERE dispatchGuid IN (SELECT guid FROM order_items WHERE orderGuid=?) AND isDeleted=0", [orderGuid]);
+      const [total] = await conn.query("SELECT COUNT(*) as total FROM order_items WHERE orderGuid=? AND companyGuid=?", [orderGuid, cid]);
+      const [returned] = await conn.query("SELECT COUNT(DISTINCT serialNumberGuid) as total FROM returns WHERE dispatchGuid IN (SELECT guid FROM order_items WHERE orderGuid=? AND companyGuid=?) AND isDeleted=0 AND companyGuid=?", [orderGuid, cid, cid]);
       const newOrderStatus = returned[0].total >= total[0].total ? "Returned" : "Partially Returned";
-      await conn.query("UPDATE orders SET status=? WHERE guid=?", [newOrderStatus, orderGuid]);
+      await conn.query("UPDATE orders SET status=? WHERE guid=? AND companyGuid=?", [newOrderStatus, orderGuid, cid]);
     }
 
-    await recordSerialMovement(conn, { serialNumberGuid: serial.guid, serialValue: serial.serialValue, dispatchGuid: dispatch.guid, actionType: "Returned", status: "Returned", condition: finalCondition, reason: String(reason || "").trim(), firmName: dispatch.firmName, customerName: dispatch.customerName, invoiceNumber: dispatch.invoiceNumber, createdAt: returnDate || new Date(), createdBy: returnedBy || "System", notes: `Returned from order #${dispatch.guid}` });
-    await recordSerialMovement(conn, { serialNumberGuid: serial.guid, serialValue: serial.serialValue, dispatchGuid: null, actionType: finalCondition === "Damaged" ? "Damaged" : "InStock", status: newStatus, condition: finalCondition, reason: String(reason || "").trim(), firmName: dispatch.firmName, customerName: dispatch.customerName, invoiceNumber: dispatch.invoiceNumber, createdAt: returnDate ? new Date(new Date(returnDate).getTime() + 1000) : new Date(), createdBy: returnedBy || "System", notes: finalCondition === "Damaged" ? "Moved to damaged stock after return" : "Restocked after return" });
+    await recordSerialMovement(conn, { companyGuid: cid, serialNumberGuid: serial.guid, serialValue: serial.serialValue, dispatchGuid: dispatch.guid, actionType: "Returned", status: "Returned", condition: finalCondition, reason: String(reason || "").trim(), firmName: dispatch.firmName, customerName: dispatch.customerName, invoiceNumber: dispatch.invoiceNumber, createdAt: returnDate || new Date(), createdBy: returnedBy || "System", notes: `Returned from order #${dispatch.guid}` });
+    await recordSerialMovement(conn, { companyGuid: cid, serialNumberGuid: serial.guid, serialValue: serial.serialValue, dispatchGuid: null, actionType: finalCondition === "Damaged" ? "Damaged" : "InStock", status: newStatus, condition: finalCondition, reason: String(reason || "").trim(), firmName: dispatch.firmName, customerName: dispatch.customerName, invoiceNumber: dispatch.invoiceNumber, createdAt: returnDate ? new Date(new Date(returnDate).getTime() + 1000) : new Date(), createdBy: returnedBy || "System", notes: finalCondition === "Damaged" ? "Moved to damaged stock after return" : "Restocked after return" });
 
     await conn.commit();
     response = { message: "Return processed successfully", id: returnGuid, serialValue: trimmed, condition: finalCondition, status: newStatus, dispatchId: dispatch.guid, invoiceNumber: dispatch.invoiceNumber, reason: String(reason || "").trim() };
@@ -109,5 +118,8 @@ export const POST = withErrorHandling(async (request) => {
     conn.release();
   }
 
+  broadcastRealtimeEvent(cid, "returns");
+  broadcastRealtimeEvent(cid, "serials");
+  broadcastRealtimeEvent(cid, "dispatches");
   return NextResponse.json(response, { status: 201 });
 });

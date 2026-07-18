@@ -12,7 +12,7 @@ export default function ModelsPage() {
         currentUser = getStoredUser();
     }
     
-    const isAdmin = currentUser?.role === "Admin" || currentUser?.role === "SuperAdmin";
+    const isAdmin = currentUser?.role === "Admin";
     const isUser = currentUser?.role === "User";
 
     return (

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany } from "@/lib/auth";
 import { authorizeInventory } from "@/lib/inventoryAuth";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
@@ -9,6 +9,7 @@ export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   authorizeInventory(user, "POST");
   requireAuth(user);
+  requireCompany(user);
 
   const { stockInId } = body;
   const connection = await mysqlPool.getConnection();
@@ -31,8 +32,8 @@ export const POST = withErrorHandling(async (request) => {
         const [serials] = await connection.query("SELECT serialNumber FROM inventorystockinserial WHERE stockInDetailId = ? AND isDeleted = 0", [item.stockInDetailId]);
         for (const s of serials) {
           await connection.execute(
-            "INSERT INTO serials (guid, modelGuid, godownGuid, value, landingPrice, vendorId, stockInId, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, ?, 'Available', 0, NOW())",
-            [item.modelGuid, item.godownGuid || null, s.serialNumber, item.purchaseRate || 0, stockInVendorId, stockInId]
+            "INSERT INTO serials (guid, companyGuid, modelGuid, godownGuid, value, landingPrice, vendorId, stockInId, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, 'Available', 0, NOW())",
+            [user.companyId, item.modelGuid, item.godownGuid || null, s.serialNumber, item.purchaseRate || 0, stockInVendorId, stockInId]
           );
         }
       } else if (item.itemVariantId) {
@@ -45,8 +46,8 @@ export const POST = withErrorHandling(async (request) => {
           const serialModelGuid = modelLink.length > 0 && modelLink[0].linkedModelGuid ? modelLink[0].linkedModelGuid : item.itemVariantId;
           for (const s of itemSerials) {
             await connection.execute(
-              "INSERT INTO serials (guid, modelGuid, godownGuid, value, landingPrice, vendorId, stockInId, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, ?, 'Available', 0, NOW())",
-              [serialModelGuid, item.godownGuid || null, s.serialNumber, item.purchaseRate || 0, stockInVendorId, stockInId]
+              "INSERT INTO serials (guid, companyGuid, modelGuid, godownGuid, value, landingPrice, vendorId, stockInId, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, 'Available', 0, NOW())",
+              [user.companyId, serialModelGuid, item.godownGuid || null, s.serialNumber, item.purchaseRate || 0, stockInVendorId, stockInId]
             );
           }
         } else {

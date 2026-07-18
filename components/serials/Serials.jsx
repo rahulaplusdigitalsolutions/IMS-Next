@@ -104,10 +104,8 @@ export default function Serials({
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  const canManage = (currentUser?.role === 'Admin' || currentUser?.role === 'SuperAdmin') ||
+  const canManage = currentUser?.role === 'Admin' ||
                     !!currentUser?.allow_edit_serials;
-
-  // const canDelete = currentUser?.role === 'Admin' || currentUser?.role === 'SuperAdmin';
 
   useEffect(() => {
     let mounted = true;

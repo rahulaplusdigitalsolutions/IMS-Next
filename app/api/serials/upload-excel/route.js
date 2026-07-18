@@ -2,15 +2,16 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
-import xlsx from "xlsx";
+import * as xlsx from "xlsx";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, ApiError } from "@/lib/auth";
+import { authenticateRequest, ApiError, requireCompany } from "@/lib/auth";
 import { authorizeSerials } from "@/lib/serialsAuth";
 import { withErrorHandling } from "@/lib/apiResponse";
 import { uploadDir, saveUploadedFile } from "@/lib/upload";
 
 export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeSerials(user, "POST");
 
   const formData = await request.formData();
@@ -51,10 +52,10 @@ export const POST = withErrorHandling(async (request) => {
         const landingPrice = isNaN(cleanLp) ? 0 : cleanLp;
         const landingPriceReason = reasonValue ? String(reasonValue).trim() : null;
 
-        const [mCheck] = await mysqlPool.query("SELECT guid as id, mrp, name FROM models WHERE guid=? AND isDeleted=0", [modelId]);
+        const [mCheck] = await mysqlPool.query("SELECT guid as id, mrp, name FROM models WHERE guid=? AND isDeleted=0 AND companyGuid=?", [modelId, user.companyId]);
         if (!mCheck.length) { results.failed.push({ row: rowNum, serialNumber: trimmedSerial, reason: `Model ID ${modelId} not found` }); continue; }
 
-        const [sCheck] = await mysqlPool.query("SELECT guid FROM serials WHERE value=?", [trimmedSerial]);
+        const [sCheck] = await mysqlPool.query("SELECT guid FROM serials WHERE value=? AND companyGuid=?", [trimmedSerial, user.companyId]);
         if (sCheck.length > 0) { results.failed.push({ row: rowNum, serialNumber: trimmedSerial, reason: "Serial number already exists" }); continue; }
 
         const modelMRP = Number(mCheck[0].mrp) || 0;
@@ -66,14 +67,14 @@ export const POST = withErrorHandling(async (request) => {
 
         const godownGuid = godownGuidValue ? String(godownGuidValue).trim() : null;
         if (godownGuid) {
-          const [gCheck] = await mysqlPool.query("SELECT guid FROM godowns WHERE guid=? AND isDeleted=0", [godownGuid]);
+          const [gCheck] = await mysqlPool.query("SELECT guid FROM godowns WHERE guid=? AND isDeleted=0 AND companyGuid=?", [godownGuid, user.companyId]);
           if (!gCheck.length) { results.failed.push({ row: rowNum, serialNumber: trimmedSerial, reason: `Godown ${godownGuid} not found` }); continue; }
         }
 
         const serialGuid = randomUUID();
         await mysqlPool.query(
-          "INSERT INTO serials (guid,modelGuid,godownGuid,value,landingPrice,status,landingPriceReason,isDeleted,createdAt) VALUES (?,?,?,?,?,?,?,0,NOW())",
-          [serialGuid, modelId, godownGuid, trimmedSerial, landingPrice, String(statusValue).trim() || "Available", finalReason]
+          "INSERT INTO serials (guid,companyGuid,modelGuid,godownGuid,value,landingPrice,status,landingPriceReason,isDeleted,createdAt) VALUES (?,?,?,?,?,?,?,?,0,NOW())",
+          [serialGuid, user.companyId, modelId, godownGuid, trimmedSerial, landingPrice, String(statusValue).trim() || "Available", finalReason]
         );
         results.success.push({ row: rowNum, id: serialGuid, serialNumber: trimmedSerial, modelId, modelName: mCheck[0].name });
       } catch (e) {

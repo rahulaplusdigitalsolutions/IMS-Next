@@ -1,7 +1,9 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { printerService } from "@/lib/services/api";
+import { API_URL } from "@/lib/client/apiClient";
+import { getStoredToken } from "@/lib/client/auth";
 
 // Mirrors the core-data slice of Frontend4/src/components/AdminLayout.jsx's
 // loadCoreData/loadOrdersData/loadInstallationData — kept in a context so any
@@ -35,6 +37,9 @@ export function AppDataProvider({ children }) {
     installationStats: false,
   });
   const [coreLoading, setCoreLoading] = useState(true);
+  const [globalSearch, setGlobalSearch] = useState("");
+  const [searchResult, setSearchResult] = useState(null);
+  const [showSearchModal, setShowSearchModal] = useState(false);
 
   const markDataLoaded = useCallback((nextStatus) => {
     setDataStatus((prev) => ({ ...prev, ...nextStatus }));
@@ -139,6 +144,143 @@ export function AppDataProvider({ children }) {
     [dataStatus.orders, dataStatus.installations, dataStatus.installationStats, loadCoreData, loadOrdersData, loadInstallationData]
   );
 
+  // Real-time sync — a single app-wide SSE connection (opened once here,
+  // since AppDataProvider wraps every page and isn't remounted on
+  // navigation) that keeps every open tab in sync whenever any user in the
+  // same company adds/edits/deletes models, serials, dispatches, returns,
+  // orders, etc. Other features (e.g. Contracts) that don't live in this
+  // context can still piggyback on the same connection via subscribeRealtime.
+  const realtimeSubscribers = useRef(new Map()); // Map<entity, Set<callback>>
+  const dataStatusRef = useRef(dataStatus);
+  dataStatusRef.current = dataStatus;
+
+  const subscribeRealtime = useCallback((entity, callback) => {
+    if (!realtimeSubscribers.current.has(entity)) realtimeSubscribers.current.set(entity, new Set());
+    realtimeSubscribers.current.get(entity).add(callback);
+    return () => {
+      const set = realtimeSubscribers.current.get(entity);
+      if (set) set.delete(callback);
+    };
+  }, []);
+
+  useEffect(() => {
+    let evtSource = null;
+    let retryTimer = null;
+    let retryDelay = 5000;
+    let stopped = false;
+
+    const CORE_ENTITIES = new Set(["models", "serials", "dispatches", "returns"]);
+
+    function connect() {
+      const token = getStoredToken();
+      if (!token || stopped) return;
+
+      evtSource = new EventSource(`${API_URL}/realtime/stream?token=${token}`);
+
+      evtSource.onmessage = (event) => {
+        if (!event.data) return; // heartbeat
+        retryDelay = 5000;
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type !== "DATA_CHANGED") return;
+
+          if (CORE_ENTITIES.has(data.entity)) {
+            loadCoreData();
+          } else if (data.entity === "orders" && dataStatusRef.current.orders) {
+            loadOrdersData();
+          } else if (data.entity === "installations" && (dataStatusRef.current.installations || dataStatusRef.current.installationStats)) {
+            loadInstallationData();
+          }
+
+          const set = realtimeSubscribers.current.get(data.entity);
+          if (set) set.forEach((cb) => cb());
+        } catch {
+          // ignore malformed event
+        }
+      };
+
+      evtSource.onerror = () => {
+        evtSource?.close();
+        evtSource = null;
+        if (stopped) return;
+        retryDelay = Math.min(retryDelay * 2, 60000);
+        retryTimer = setTimeout(connect, retryDelay);
+      };
+    }
+
+    connect();
+
+    return () => {
+      stopped = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      evtSource?.close();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const query = globalSearch;
+    if (!query.trim()) {
+      setSearchResult(null);
+      setShowSearchModal(false);
+      return;
+    }
+
+    const lowerQuery = query.toLowerCase();
+    let foundSerial = serials.find((s) => s.value.toLowerCase() === lowerQuery);
+
+    if (!foundSerial) {
+      const foundDispatch = dispatches.find((d) => d.customerName && d.customerName.toLowerCase() === lowerQuery);
+      if (foundDispatch) {
+        foundSerial = serials.find((s) => (s.guid || s.id) === (foundDispatch.serialGuid || foundDispatch.serialNumberId));
+      }
+    }
+
+    if (!foundSerial) {
+      const foundDispatch = dispatches.find((d) => d.warranty && d.warranty.toLowerCase().includes(lowerQuery));
+      if (foundDispatch) {
+        foundSerial = serials.find((s) => (s.guid || s.id) === (foundDispatch.serialGuid || foundDispatch.serialNumberId));
+      }
+    }
+
+    if (foundSerial) {
+      const model = models.find((m) => (m.guid || m.id) === foundSerial.modelGuid);
+
+      const dispatchInfo = dispatches
+        .filter((d) => (d.serialGuid || d.serialNumberId) === (foundSerial.guid || foundSerial.id) && !d.isDeleted)
+        .sort((a, b) => new Date(b.dispatchDate) - new Date(a.dispatchDate))[0];
+
+      const cancelledDispatchInfo = dispatches
+        .filter((d) => (d.serialGuid || d.serialNumberId) === (foundSerial.guid || foundSerial.id) && d.isDeleted)
+        .sort((a, b) => new Date(b.cancelledAt) - new Date(a.cancelledAt))[0];
+
+      const returnInfo = returns
+        .filter((r) => r.serialGuid === foundSerial.id)
+        .sort((a, b) => new Date(b.returnDate) - new Date(a.returnDate))[0];
+
+      setSearchResult({
+        serial: foundSerial.value,
+        model: model?.name || "Unknown",
+        status: foundSerial.status,
+        company: model?.company || "Unknown",
+        dispatch: dispatchInfo,
+        cancelledDispatch: cancelledDispatchInfo,
+        returnRecord: returnInfo,
+        landingPrice: foundSerial.landingPrice,
+      });
+      setShowSearchModal(true);
+    } else {
+      setSearchResult(null);
+      setShowSearchModal(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalSearch]);
+
+  const clearGlobalSearch = useCallback(() => {
+    setGlobalSearch("");
+    setShowSearchModal(false);
+  }, []);
+
   const value = {
     models,
     serials,
@@ -149,10 +291,17 @@ export function AppDataProvider({ children }) {
     installationStats,
     dataStatus,
     coreLoading,
+    globalSearch,
+    setGlobalSearch,
+    clearGlobalSearch,
+    searchResult,
+    showSearchModal,
+    setShowSearchModal,
     loadCoreData,
     loadOrdersData,
     loadInstallationData,
     refreshData,
+    subscribeRealtime,
   };
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

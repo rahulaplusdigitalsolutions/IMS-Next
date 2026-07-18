@@ -205,10 +205,18 @@ const Notifications = ({ onOpenOrder }) => {
           ) : (
             /* Notification Items */
             notifications.map((notif) => (
-              <button
+              <div
                 key={notif.guid}
+                role="button"
+                tabIndex={0}
                 onClick={() => handleNotificationClick(notif)}
-                className={`group relative w-full text-left p-5 flex items-start gap-4 transition-all duration-200 hover:bg-slate-50 focus:outline-none focus-visible:bg-slate-50
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleNotificationClick(notif);
+                  }
+                }}
+                className={`group relative w-full text-left p-5 flex items-start gap-4 transition-all duration-200 hover:bg-slate-50 focus:outline-none focus-visible:bg-slate-50 cursor-pointer
                   ${!notif.isRead ? 'bg-indigo-50/30' : 'bg-white'}`}
               >
                 {/* Unread Left Border Indicator */}
@@ -247,7 +255,7 @@ const Notifications = ({ onOpenOrder }) => {
                 >
                   <Trash2 size={16} />
                 </button>
-              </button>
+              </div>
             ))
           )}
         </div>

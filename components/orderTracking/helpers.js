@@ -18,6 +18,7 @@ export const getAuthHeaders = () => {
 };
 
 export const STATUS_CONFIG = {
+  Draft: { label: "Draft", bgClass: "bg-slate-100 border-slate-300 text-slate-600", dotClass: "bg-slate-400", icon: Clock, step: 0 },
   Pending: { label: "Pending", bgClass: "bg-slate-100 border-slate-300 text-slate-700", dotClass: "bg-slate-400", icon: Clock, step: 0 },
   "Order Confirmed": { label: "Order Confirmed", bgClass: "bg-blue-50 border-blue-200 text-blue-700", dotClass: "bg-blue-400", icon: CheckCircle, step: 0.5 },
   "Order Not Confirmed": { label: "On Hold", bgClass: "bg-yellow-50 border-yellow-200 text-yellow-700", dotClass: "bg-yellow-500", icon: PauseCircle, step: 0 },
@@ -37,9 +38,9 @@ export const STATUS_CONFIG = {
 };
 
 export const UPDATE_STATUS_OPTIONS = [
+  { value: "Draft", label: "Draft" },
   { value: "Order Confirmed", label: "Order Confirmed" },
-  { value: "Order Not Confirmed", label: "Order Not Confirmed (On Hold)" },
-  { value: "Order On Hold", label: "Order On Hold" },
+  { value: "Order On Hold", label: "On Hold" },
   { value: "Send for Billing", label: "Send for Billing" },
   { value: "Order Cancelled", label: "Order Cancelled" },
 ];

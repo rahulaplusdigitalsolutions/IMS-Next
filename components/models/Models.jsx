@@ -39,7 +39,6 @@ function Toast({ message, type, onClose }) {
 
 export default function Models({ models = [], serials = [], onRefresh, isAdmin, isUser, currentUser }) {
   const canManage = currentUser?.role === 'Admin' ||
-                    currentUser?.role === 'SuperAdmin' ||
                     currentUser?.allow_edit_models;
 
   const searchParams = useSearchParams();

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, ApiError } from "@/lib/auth";
+import { authenticateRequest, requireCompany, ApiError } from "@/lib/auth";
 import { authorizeFbfFba, resolveModelId } from "@/lib/fbfFbaAuth";
 import { recordSerialMovement } from "@/lib/helpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
@@ -9,6 +9,7 @@ import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 export const POST = withErrorHandling(async (request) => {
   const body = await parseJsonBody(request);
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeFbfFba(user, "POST");
 
   const { modelGuid, itemId, type, quantity, amount, transactionDate, referenceId, createdBy, warehouseGuid } = body;
@@ -39,8 +40,8 @@ export const POST = withErrorHandling(async (request) => {
     await connection.beginTransaction();
 
     const [stock] = isSerialized
-      ? await connection.query("SELECT quantity FROM fbf_fba_stock WHERE modelGuid = ? AND type = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL)) FOR UPDATE", [safeModelId, type, warehouseGuid || null, warehouseGuid || null])
-      : await connection.query("SELECT quantity FROM fbf_fba_stock WHERE itemKind = 'nonSerialized' AND itemId = ? AND type = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL)) FOR UPDATE", [safeItemId, type, warehouseGuid || null, warehouseGuid || null]);
+      ? await connection.query("SELECT quantity FROM fbf_fba_stock WHERE modelGuid = ? AND type = ? AND companyGuid = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL)) FOR UPDATE", [safeModelId, type, user.companyId, warehouseGuid || null, warehouseGuid || null])
+      : await connection.query("SELECT quantity FROM fbf_fba_stock WHERE itemKind = 'nonSerialized' AND itemId = ? AND type = ? AND companyGuid = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL)) FOR UPDATE", [safeItemId, type, user.companyId, warehouseGuid || null, warehouseGuid || null]);
 
     if (!stock[0] || stock[0].quantity < safeQuantity) {
       throw new Error("Insufficient stock in " + type);
@@ -48,15 +49,15 @@ export const POST = withErrorHandling(async (request) => {
 
     let soldSerials = [];
     if (isSerialized) {
-      const [model] = await connection.query("SELECT isSerialized FROM models WHERE guid = ?", [safeModelId]);
+      const [model] = await connection.query("SELECT isSerialized FROM models WHERE guid = ? AND companyGuid = ?", [safeModelId, user.companyId]);
 
       let availableSerials;
       if (requestedSerialNumbers.length > 0) {
         const [matched] = await connection.query(`
           SELECT guid, value FROM serials
-          WHERE modelGuid = ? AND status = ? AND isDeleted = 0 AND value IN (?)
+          WHERE modelGuid = ? AND status = ? AND isDeleted = 0 AND value IN (?) AND companyGuid = ?
           FOR UPDATE
-        `, [safeModelId, type, requestedSerialNumbers]);
+        `, [safeModelId, type, requestedSerialNumbers, user.companyId]);
         if (matched.length !== requestedSerialNumbers.length) {
           const found = new Set(matched.map((s) => s.value));
           const missing = requestedSerialNumbers.filter((sn) => !found.has(sn));
@@ -66,10 +67,10 @@ export const POST = withErrorHandling(async (request) => {
       } else {
         const [fifo] = await connection.query(`
           SELECT guid, value FROM serials
-          WHERE modelGuid = ? AND status = ? AND isDeleted = 0
+          WHERE modelGuid = ? AND status = ? AND isDeleted = 0 AND companyGuid = ?
           ORDER BY createdAt ASC LIMIT ?
           FOR UPDATE
-        `, [safeModelId, type, safeQuantity]);
+        `, [safeModelId, type, user.companyId, safeQuantity]);
         availableSerials = fifo;
       }
 
@@ -78,10 +79,11 @@ export const POST = withErrorHandling(async (request) => {
       soldSerials = availableSerials.map((s) => s.value);
       const serialIds = availableSerials.map((s) => s.guid);
 
-      await connection.query("UPDATE serials SET status = 'Sold' WHERE guid IN (?)", [serialIds]);
+      await connection.query("UPDATE serials SET status = 'Sold' WHERE guid IN (?) AND companyGuid = ?", [serialIds, user.companyId]);
 
       for (const sObj of availableSerials) {
         await recordSerialMovement(connection, {
+          companyGuid: user.companyId,
           serialNumberGuid: sObj.guid,
           serialValue: sObj.value,
           actionType: "Sold",
@@ -93,21 +95,21 @@ export const POST = withErrorHandling(async (request) => {
     }
 
     if (isSerialized) {
-      await connection.query("UPDATE fbf_fba_stock SET quantity = quantity - ? WHERE modelGuid = ? AND type = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL))", [safeQuantity, safeModelId, type, warehouseGuid || null, warehouseGuid || null]);
+      await connection.query("UPDATE fbf_fba_stock SET quantity = quantity - ? WHERE modelGuid = ? AND type = ? AND companyGuid = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL))", [safeQuantity, safeModelId, type, user.companyId, warehouseGuid || null, warehouseGuid || null]);
     } else {
-      await connection.query("UPDATE fbf_fba_stock SET quantity = quantity - ? WHERE itemKind = 'nonSerialized' AND itemId = ? AND type = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL))", [safeQuantity, safeItemId, type, warehouseGuid || null, warehouseGuid || null]);
+      await connection.query("UPDATE fbf_fba_stock SET quantity = quantity - ? WHERE itemKind = 'nonSerialized' AND itemId = ? AND type = ? AND companyGuid = ? AND (warehouseGuid = ? OR (warehouseGuid IS NULL AND ? IS NULL))", [safeQuantity, safeItemId, type, user.companyId, warehouseGuid || null, warehouseGuid || null]);
     }
 
     if (isSerialized) {
       await connection.query(`
-        INSERT INTO fbf_fba_transactions (guid, modelGuid, itemId, itemKind, type, warehouseGuid, transactionType, quantity, amount, transactionDate, referenceId, serialNumbers, createdBy)
-        VALUES (UUID(), ?, NULL, 'serialized', ?, ?, 'OUT', ?, ?, ?, ?, ?, ?)
-      `, [safeModelId, type, warehouseGuid || null, safeQuantity, safeAmount, safeTransactionDate, referenceId, JSON.stringify(soldSerials), createdBy]);
+        INSERT INTO fbf_fba_transactions (guid, companyGuid, modelGuid, itemId, itemKind, type, warehouseGuid, transactionType, quantity, amount, transactionDate, referenceId, serialNumbers, createdBy)
+        VALUES (UUID(), ?, ?, NULL, 'serialized', ?, ?, 'OUT', ?, ?, ?, ?, ?, ?)
+      `, [user.companyId, safeModelId, type, warehouseGuid || null, safeQuantity, safeAmount, safeTransactionDate, referenceId, JSON.stringify(soldSerials), createdBy]);
     } else {
       await connection.query(`
-        INSERT INTO fbf_fba_transactions (guid, modelGuid, itemId, itemKind, type, warehouseGuid, transactionType, quantity, amount, transactionDate, referenceId, serialNumbers, createdBy)
-        VALUES (UUID(), NULL, ?, 'nonSerialized', ?, ?, 'OUT', ?, ?, ?, ?, ?, ?)
-      `, [safeItemId || null, type, warehouseGuid || null, safeQuantity, safeAmount, safeTransactionDate, referenceId, JSON.stringify(soldSerials), createdBy]);
+        INSERT INTO fbf_fba_transactions (guid, companyGuid, modelGuid, itemId, itemKind, type, warehouseGuid, transactionType, quantity, amount, transactionDate, referenceId, serialNumbers, createdBy)
+        VALUES (UUID(), ?, NULL, ?, 'nonSerialized', ?, ?, 'OUT', ?, ?, ?, ?, ?, ?)
+      `, [user.companyId, safeItemId || null, type, warehouseGuid || null, safeQuantity, safeAmount, safeTransactionDate, referenceId, JSON.stringify(soldSerials), createdBy]);
     }
 
     await connection.commit();

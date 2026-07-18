@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany } from "@/lib/auth";
 import { authorizeInventory } from "@/lib/inventoryAuth";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
@@ -10,6 +10,7 @@ export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   authorizeInventory(user, "POST");
   requireAuth(user);
+  requireCompany(user);
 
   const { RefNo, OrderId, TrackingId, IssueDate, IssuedBy, Items, invoiceFile, packingCost, freightCost, commission, platformId } = body;
 
@@ -24,15 +25,15 @@ export const POST = withErrorHandling(async (request) => {
     const totalSellingPrice = Items.reduce((sum, item) => sum + item.issueQty * (item.sellingPrice || 0), 0);
 
     await connection.execute(
-      "INSERT INTO inventorystockout (stockOutId, refNo, orderId, trackingId, issueDate, issuedBy, invoiceFile, packingCost, freightCost, commission, platformId, sellingPrice) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [soId, RefNo, OrderId, TrackingId, formattedDate, IssuedBy, invoiceFile || null, packingCost || 0, freightCost || 0, commission || 0, platformId || null, totalSellingPrice]
+      "INSERT INTO inventorystockout (stockOutId, companyGuid, refNo, orderId, trackingId, issueDate, issuedBy, invoiceFile, packingCost, freightCost, commission, platformId, sellingPrice) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [soId, user.companyId, RefNo, OrderId, TrackingId, formattedDate, IssuedBy, invoiceFile || null, packingCost || 0, freightCost || 0, commission || 0, platformId || null, totalSellingPrice]
     );
 
     for (const item of Items) {
       const detId = uuidv4();
       await connection.execute(
-        "INSERT INTO inventorystockoutdetail (stockOutDetailId, stockOutId, itemVariantId, issueQty, sellingPrice) VALUES (?, ?, ?, ?, ?)",
-        [detId, soId, item.itemVariantId, item.issueQty, item.sellingPrice || 0]
+        "INSERT INTO inventorystockoutdetail (stockOutDetailId, companyGuid, stockOutId, itemVariantId, issueQty, sellingPrice) VALUES (?, ?, ?, ?, ?, ?)",
+        [detId, user.companyId, soId, item.itemVariantId, item.issueQty, item.sellingPrice || 0]
       );
 
       if (item.serials && item.serials.length > 0) {

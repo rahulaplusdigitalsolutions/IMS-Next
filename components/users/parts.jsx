@@ -2,12 +2,12 @@
 import React from "react";
 import { ROLE_CONFIG } from "./constants";
 
-export const RoleBadge = ({ role, size = "sm" }) => {
+export const RoleBadge = ({ role, label, size = "sm" }) => {
   const cfg = ROLE_CONFIG[role] || { bg: "bg-slate-100", text: "text-slate-700", border: "border-slate-200" };
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold border ${cfg.bg} ${cfg.text} ${cfg.border} ${size === "sm" ? "text-[10px] uppercase tracking-wider" : "text-xs"}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-      {role}
+      {label || role}
     </span>
   );
 };

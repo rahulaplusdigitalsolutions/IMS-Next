@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth, ApiError } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany, ApiError } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
 import { autoResolveStalePendingRequests } from "@/lib/modelApprovalsHelpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
@@ -25,21 +25,22 @@ export const GET = withErrorHandling(async (request) => {
 export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   requireAuth(user);
+  requireCompany(user);
 
   const { name, company, category, colorType, printerType, description, mrp, mainCategory, cpu, ram, ssd, serialNumber, landingPrice, landingPriceReason, godownGuid, screenSize, resolution, panelType, refreshRate } = await parseJsonBody(request);
   if (!name || !name.trim()) throw new ApiError(400, "Model name is required.");
 
   const [existing] = await mysqlPool.query(
-    "SELECT guid FROM models WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND isDeleted=0", [name]
+    "SELECT guid FROM models WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND isDeleted=0 AND companyGuid=?", [name, user.companyId]
   );
   if (existing.length > 0) {
     if (serialNumber && serialNumber.trim()) {
       const sn = serialNumber.trim();
-      const [sCheck] = await mysqlPool.query("SELECT guid FROM serials WHERE value=? AND isDeleted=0", [sn]);
+      const [sCheck] = await mysqlPool.query("SELECT guid FROM serials WHERE value=? AND isDeleted=0 AND companyGuid=?", [sn, user.companyId]);
       if (sCheck.length > 0) throw new ApiError(400, `Serial number "${sn}" already exists in the system!`);
       await mysqlPool.query(
-        "INSERT INTO serials (guid, modelGuid, godownGuid, value, landingPrice, landingPriceReason, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, 'Available', 0, NOW())",
-        [existing[0].guid, godownGuid || null, sn, landingPrice || 0, landingPriceReason || null]
+        "INSERT INTO serials (guid, companyGuid, modelGuid, godownGuid, value, landingPrice, landingPriceReason, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, ?, 'Available', 0, NOW())",
+        [user.companyId, existing[0].guid, godownGuid || null, sn, landingPrice || 0, landingPriceReason || null]
       );
       return NextResponse.json({ message: `Model already exists. Serial "${sn}" added directly to stock.`, directlyAdded: true, modelGuid: existing[0].guid });
     }
@@ -53,7 +54,7 @@ export const POST = withErrorHandling(async (request) => {
 
   if (serialNumber && serialNumber.trim()) {
     const trimmedSerial = serialNumber.trim();
-    const [sCheck] = await mysqlPool.query("SELECT guid FROM serials WHERE value=? AND isDeleted=0", [trimmedSerial]);
+    const [sCheck] = await mysqlPool.query("SELECT guid FROM serials WHERE value=? AND isDeleted=0 AND companyGuid=?", [trimmedSerial, user.companyId]);
     if (sCheck.length > 0) throw new ApiError(400, `Serial number "${trimmedSerial}" already exists in the system!`);
 
     const [sPendingCheck] = await mysqlPool.query("SELECT guid FROM model_approval_requests WHERE serialNumber=? AND status='pending' AND isDeleted=0", [trimmedSerial]);
@@ -87,6 +88,7 @@ export const POST = withErrorHandling(async (request) => {
     type: "info",
     priority: "low",
     link: "/models?tab=approvals",
+    companyGuid: user.companyId,
   });
 
   return NextResponse.json({ message: "Approval request submitted. Admins have been notified.", guid });

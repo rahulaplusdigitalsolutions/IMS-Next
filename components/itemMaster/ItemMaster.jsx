@@ -8,7 +8,7 @@ import PageHeader from "../common/PageHeader";
 import Pagination from "../common/Pagination";
 
 export default function ItemMaster() {
-  const router = useRouter();
+  const router = useNavigate();
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [brands, setBrands] = useState([]);
@@ -33,6 +33,10 @@ export default function ItemMaster() {
   const [pageSize, setPageSize] = useState(10);
   const [totalRecords, setTotalRecords] = useState(0);
 
+  // Filter items down to one category (e.g. "Printer") instead of showing
+  // everything mixed together flat.
+  const [filterCategoryId, setFilterCategoryId] = useState("");
+
   // Fetch initial dropdown data
   const fetchDependencies = async () => {
     try {
@@ -48,11 +52,11 @@ export default function ItemMaster() {
   };
 
   // Fetch Items
-  const fetchItems = async (page = currentPage, limit = pageSize) => {
+  const fetchItems = async (page = currentPage, limit = pageSize, catFilter = filterCategoryId) => {
     setTableLoading(true);
     try {
       const response = await legacyApi.get("/Inventory/GetItemList", {
-        params: { page, limit },
+        params: { page, limit, ...(catFilter ? { categoryId: catFilter } : {}) },
       });
       setItems(response.data?.data || []);
       setTotalRecords(response.data?.total || 0);
@@ -86,9 +90,9 @@ export default function ItemMaster() {
   }, []);
 
   useEffect(() => {
-    fetchItems(currentPage, pageSize);
+    fetchItems(currentPage, pageSize, filterCategoryId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize]);
+  }, [currentPage, pageSize, filterCategoryId]);
 
   useEffect(() => {
     fetchBrandsForCategory(categoryId);
@@ -280,6 +284,21 @@ export default function ItemMaster() {
             {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />} {itemId ? "Update Item" : "Save Item"}
           </button>
         </div>
+      </div>
+
+      {/* Category Filter */}
+      <div className="flex items-center gap-3 mb-4">
+        <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5">
+          <ListTree size={13} /> Category
+        </label>
+        <select
+          value={filterCategoryId}
+          onChange={(e) => { setFilterCategoryId(e.target.value); setCurrentPage(1); }}
+          className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-sm text-slate-800 outline-none focus:border-indigo-500 shadow-sm"
+        >
+          <option value="">All Categories</option>
+          {categories.map((c) => (<option key={c.categoryId} value={c.categoryId}>{c.categoryName}</option>))}
+        </select>
       </div>
 
       {/* Table Section */}

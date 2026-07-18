@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest } from "@/lib/auth";
+import { authenticateRequest, requireCompany } from "@/lib/auth";
 import { authorizeSerials } from "@/lib/serialsAuth";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
+import { broadcastRealtimeEvent } from "@/lib/realtimeEvents";
 
 export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeSerials(user, "POST");
 
   const { serials } = await parseJsonBody(request);
@@ -14,7 +16,7 @@ export const POST = withErrorHandling(async (request) => {
 
   const values = serials.map((s) => s.value?.trim()).filter(Boolean);
   const [existing] = values.length
-    ? await mysqlPool.query("SELECT value FROM serials WHERE value IN (?) AND isDeleted=0", [values])
+    ? await mysqlPool.query("SELECT value FROM serials WHERE value IN (?) AND isDeleted=0 AND companyGuid=?", [values, user.companyId])
     : [[]];
   const existingSet = new Set(existing.map((r) => r.value));
 
@@ -23,7 +25,7 @@ export const POST = withErrorHandling(async (request) => {
     if (!trimmed) { results.failed.push({ value: serial.value, reason: "Empty serial value" }); continue; }
     if (existingSet.has(trimmed)) { results.failed.push({ value: trimmed, reason: "Already exists" }); continue; }
     try {
-      const [mCheck] = await mysqlPool.query("SELECT mrp FROM models WHERE guid=? AND isDeleted=0", [serial.modelId]);
+      const [mCheck] = await mysqlPool.query("SELECT mrp FROM models WHERE guid=? AND isDeleted=0 AND companyGuid=?", [serial.modelId, user.companyId]);
       let reasonValue = null;
       if (mCheck.length > 0) {
         const mrp = Number(mCheck[0].mrp) || 0;
@@ -35,8 +37,8 @@ export const POST = withErrorHandling(async (request) => {
       }
       const serialGuid = randomUUID();
       await mysqlPool.query(
-        "INSERT INTO serials (guid,modelGuid,godownGuid,value,landingPrice,landingPriceReason,status,isDeleted,createdAt) VALUES (?,?,?,?,?,?,'Available',0,NOW())",
-        [serialGuid, serial.modelId, serial.godownGuid || serial.warehouseGuid || null, trimmed, serial.landingPrice || 0, reasonValue]
+        "INSERT INTO serials (guid,companyGuid,modelGuid,godownGuid,value,landingPrice,landingPriceReason,status,isDeleted,createdAt) VALUES (?,?,?,?,?,?,?,'Available',0,NOW())",
+        [serialGuid, user.companyId, serial.modelId, serial.godownGuid || serial.warehouseGuid || null, trimmed, serial.landingPrice || 0, reasonValue]
       );
       existingSet.add(trimmed);
       results.success.push({ id: serialGuid, value: trimmed });
@@ -48,5 +50,6 @@ export const POST = withErrorHandling(async (request) => {
       }
     }
   }
+  if (results.success.length > 0) broadcastRealtimeEvent(user.companyId, "serials");
   return NextResponse.json({ message: "Bulk add completed", results });
 });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany } from "@/lib/auth";
 import { authorizeInventory } from "@/lib/inventoryAuth";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
@@ -9,6 +9,7 @@ export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   authorizeInventory(user, "POST");
   requireAuth(user);
+  requireCompany(user);
 
   const {
     stockOutId, trackingId, isSameItemReceived, isConditionCorrect,
@@ -26,12 +27,12 @@ export const POST = withErrorHandling(async (request) => {
 
     await connection.execute(`
       INSERT INTO inventorystationeryreturns (
-        returnId, stockOutId, trackingId, isSameItemReceived, isConditionCorrect,
+        returnId, companyGuid, stockOutId, trackingId, isSameItemReceived, isConditionCorrect,
         originalItemSent, itemReceivedInstead, isCompensationReceived,
         compensationAmount, remarks, createdBy
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      returnId, stockOutId, trackingId || "",
+      returnId, user.companyId, stockOutId, trackingId || "",
       isSameItemReceived ? 1 : 0,
       isConditionCorrect ? 1 : 0,
       originalItemSent || "",

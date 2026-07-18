@@ -8,7 +8,7 @@ export default function FbfFbaPage() {
     if (typeof window !== "undefined") {
         currentUser = getStoredUser();
     }
-    const isAdmin = currentUser?.role === "Admin" || currentUser?.role === "SuperAdmin";
+    const isAdmin = currentUser?.role === "Admin";
     
     return <FbfFbaMaster currentUser={currentUser} isAdmin={isAdmin} />;
 }

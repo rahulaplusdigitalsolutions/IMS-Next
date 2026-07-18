@@ -2,21 +2,30 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { LayoutDashboard, User, Loader2 } from "lucide-react";
+import { LayoutDashboard, User, Loader2, Clock, Search, X } from "lucide-react";
 import { getStoredUser, clearSession } from "@/lib/client/auth";
 import { AppDataProvider, useAppData } from "@/lib/client/AppDataContext";
 import Sidebar from "@/components/common/Sidebar";
+import GlobalSearchModal from "@/components/common/GlobalSearchModal";
+import { CompanyProvider, useCompany } from "@/lib/client/CompanyContext";
 
 // Minimal authenticated shell, ported from Frontend4/src/components/AdminLayout.jsx's
 // auth-guard + top-level chrome. The full sidebar (35 nav items across
 // Masters/Inventory/Order Processing/Returns groups) is being ported
 // incrementally as each corresponding page lands — see [[ims-next-migration]].
 function AppLayoutInner({ children, currentUser, handleLogout, router, pathname, isAdmin }) {
-  const { loadCoreData } = useAppData();
+  const { loadCoreData, globalSearch, setGlobalSearch } = useAppData();
+  const [now, setNow] = useState(null);
 
   useEffect(() => {
     loadCoreData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    setNow(new Date());
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
   return (
@@ -26,7 +35,37 @@ function AppLayoutInner({ children, currentUser, handleLogout, router, pathname,
       </div>
 
       <main className="flex-1 overflow-auto flex flex-col">
-        <div className="hidden md:flex items-center justify-end gap-3 px-6 py-2 bg-white border-b border-slate-100 shrink-0">
+        <div className="hidden md:flex items-center justify-between gap-3 px-6 py-2 bg-white border-b border-slate-100 shrink-0">
+          <div className="relative w-72 group">
+            <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl blur opacity-20 group-hover:opacity-30 transition-opacity" />
+            <div className="relative bg-white rounded-xl shadow-md border border-slate-200/50 overflow-hidden">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                className="w-full pl-9 pr-9 py-2.5 text-sm bg-transparent outline-none text-slate-700 placeholder:text-slate-400"
+                placeholder="Search Serial or Order ID..."
+                value={globalSearch}
+                onChange={(e) => setGlobalSearch(e.target.value)}
+              />
+              {globalSearch && (
+                <button
+                  onClick={() => setGlobalSearch("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-3 ml-auto">
+            <CompanySwitcher />
+          {now && (
+            <span className="flex items-center gap-1.5 text-xs font-bold text-indigo-700 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 px-3 py-1.5 rounded-full shadow-sm">
+              <Clock size={13} className="text-indigo-500" />
+              {now.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+              <span className="text-indigo-300">·</span>
+              {now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </span>
+          )}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl">
             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center">
               <User size={14} className="text-indigo-600" />
@@ -42,9 +81,11 @@ function AppLayoutInner({ children, currentUser, handleLogout, router, pathname,
           >
             Log Out
           </button>
+          </div>
         </div>
         <div className="max-w-full mx-auto p-4 md:p-6 w-full">{children}</div>
       </main>
+      <GlobalSearchModal showFinancials={currentUser.role === "Admin" || currentUser.role === "Accountant"} />
     </div>
   );
 }
@@ -84,19 +125,40 @@ export default function AppLayout({ children }) {
     );
   }
 
-  const isAdmin = currentUser.role === "Admin" || currentUser.role === "SuperAdmin";
+  const isAdmin = currentUser.role === "Admin";
 
   return (
     <AppDataProvider>
-      <AppLayoutInner
-        currentUser={currentUser}
-        handleLogout={handleLogout}
-        router={router}
-        pathname={pathname}
-        isAdmin={isAdmin}
-      >
-        {children}
-      </AppLayoutInner>
+      <CompanyProvider>
+        <AppLayoutInner
+          currentUser={currentUser}
+          handleLogout={handleLogout}
+          router={router}
+          pathname={pathname}
+          isAdmin={isAdmin}
+        >
+          {children}
+        </AppLayoutInner>
+      </CompanyProvider>
     </AppDataProvider>
+  );
+}
+
+function CompanySwitcher() {
+  const { activeCompany, availableCompanies, switchCompany } = useCompany();
+  if (!availableCompanies || availableCompanies.length <= 1) return null;
+
+  return (
+    <select
+      value={activeCompany?.guid || ""}
+      onChange={(e) => switchCompany(e.target.value)}
+      className="text-sm font-semibold bg-white border border-slate-200 text-slate-700 px-3 py-1.5 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+    >
+      {availableCompanies.map((c) => (
+        <option key={c.guid} value={c.guid}>
+          {c.name}
+        </option>
+      ))}
+    </select>
   );
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest } from "@/lib/auth";
+import { authenticateRequest, requireCompany } from "@/lib/auth";
 import { authorizeWarranty } from "@/lib/warrantyAuth";
 import { logUserActivity } from "@/lib/helpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
@@ -9,6 +9,7 @@ import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 export const POST = withErrorHandling(async (request) => {
   const body = await parseJsonBody(request);
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeWarranty(user, "POST");
 
   const { orderGuid, orderNumber, htmlContent, status, certGuid } = body;
@@ -17,15 +18,15 @@ export const POST = withErrorHandling(async (request) => {
   let response;
   if (certGuid) {
     await mysqlPool.query(
-      "UPDATE wc_certs SET htmlContent=?, status=?, updatedAt=NOW() WHERE guid=?",
-      [htmlContent, status || "draft", certGuid]
+      "UPDATE wc_certs SET htmlContent=?, status=?, updatedAt=NOW() WHERE guid=? AND companyGuid=?",
+      [htmlContent, status || "draft", certGuid, user.companyId]
     );
     response = { message: "Certificate saved", guid: certGuid };
   } else {
     const newGuid = uuidv4();
     await mysqlPool.query(
-      "INSERT INTO wc_certs (guid, orderGuid, orderNumber, htmlContent, status, createdBy) VALUES (?,?,?,?,?,?)",
-      [newGuid, orderGuid, orderNumber, htmlContent, status || "draft", createdBy]
+      "INSERT INTO wc_certs (guid, companyGuid, orderGuid, orderNumber, htmlContent, status, createdBy) VALUES (?,?,?,?,?,?,?)",
+      [newGuid, user.companyId, orderGuid, orderNumber, htmlContent, status || "draft", createdBy]
     );
     response = { message: "Certificate created", guid: newGuid };
   }
@@ -36,6 +37,7 @@ export const POST = withErrorHandling(async (request) => {
 
 export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeWarranty(user, "GET");
 
   const [rows] = await mysqlPool.query(`
@@ -46,8 +48,9 @@ export const GET = withErrorHandling(async (request) => {
       o.platform,
       o.gemOrderType
     FROM wc_certs wc
-    LEFT JOIN orders o ON wc.orderGuid = o.guid
+    LEFT JOIN orders o ON wc.orderGuid = o.guid AND o.companyGuid = wc.companyGuid
+    WHERE wc.companyGuid = ?
     ORDER BY wc.updatedAt DESC
-  `);
+  `, [user.companyId]);
   return NextResponse.json(rows);
 });

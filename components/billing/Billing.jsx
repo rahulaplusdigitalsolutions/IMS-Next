@@ -11,6 +11,8 @@ import {
 import { printerService } from "@/lib/services/api";
 import AppearanceModal from "@/components/common/AppearanceModal";
 import { Palette } from "lucide-react";
+import DayFilterSelect from "@/components/common/DayFilterSelect";
+import { getDayFilterRange, isWithinDayFilter } from "@/lib/client/dayFilter";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -28,15 +30,22 @@ export default function Billing({
     dispatches = [],
     onUpdate,
     onRefresh,
-    currentUser
+    currentUser,
+    initialDayFilter = "all",
+    initialCustomStart = "",
+    initialCustomEnd = "",
 }) {
     const [activeTab, setActiveTab] = useState("billing");
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
     const [searchTerm, setSearchTerm] = useState("");
     const [platformFilter, setPlatformFilter] = useState("All");
+    const [dayFilter, setDayFilter] = useState(initialDayFilter);
+    const [customStart, setCustomStart] = useState(initialCustomStart);
+    const [customEnd, setCustomEnd] = useState(initialCustomEnd);
+    const dayRange = useMemo(() => getDayFilterRange(dayFilter, customStart, customEnd), [dayFilter, customStart, customEnd]);
 
-    const canManage = (currentUser?.role === 'Admin' || currentUser?.role === 'SuperAdmin') || !!currentUser?.allow_edit_billing;
+    const canManage = currentUser?.role === 'Admin' || !!currentUser?.allow_edit_billing;
 
     // State for Editing Billing Status
     const [editingBatch, setEditingBatch] = useState(null);
@@ -106,6 +115,8 @@ export default function Billing({
 
             if (activeTab === "billing") {
                 return d.status === "Send for Billing" || d.status === "Send for Billing (Hold)";
+            } else if (activeTab === "draft") {
+                return d.status === "Draft";
             } else {
                 return d.status === "Payment Pending" || (d.logisticsStatus === "Delivered" && d.status !== "Completed");
             }
@@ -138,7 +149,8 @@ export default function Billing({
 
             const matchesSearch = firm.includes(term) || customer.includes(term) || serialStr.includes(term) || contact.includes(term);
             const matchesPlatform = platformFilter === "All" || (d.firmName || "Other") === platformFilter;
-            return matchesSearch && matchesPlatform;
+            const matchesDay = isWithinDayFilter(d.dispatchDate || d.updatedAt || d.createdAt, dayRange);
+            return matchesSearch && matchesPlatform && matchesDay;
         });
 
         filtered.forEach((d) => {
@@ -152,7 +164,7 @@ export default function Billing({
             const dateB = b[0]?.dispatchDate ? new Date(b[0].dispatchDate).getTime() : 0;
             return dateB - dateA;
         });
-    }, [billingDispatches, searchTerm, serials, platformFilter]);
+    }, [billingDispatches, searchTerm, serials, platformFilter, dayRange]);
 
     // ✅ NEW: Calculate how many bills are due (older than 2 days in Send for Billing)
     const dueBillsCount = useMemo(() => {
@@ -162,6 +174,32 @@ export default function Billing({
             const refDate = new Date(d.updatedAt || d.dispatchDate || d.createdAt || new Date());
             return differenceInDays(new Date(), refDate) >= 2;
         }).length;
+    }, [dispatches]);
+
+    // Draft tab — distinct Draft orders, and how many of those still have no invoice uploaded
+    const draftOrdersCount = useMemo(() => {
+        if (!dispatches || !Array.isArray(dispatches)) return 0;
+        const keys = new Set();
+        dispatches.forEach(d => {
+            if (!d || d.isDeleted || d.status !== "Draft") return;
+            keys.add(getBatchKey(d));
+        });
+        return keys.size;
+    }, [dispatches]);
+
+    const draftPendingBillCount = useMemo(() => {
+        if (!dispatches || !Array.isArray(dispatches)) return 0;
+        const seen = new Set();
+        let count = 0;
+        dispatches.forEach(d => {
+            if (!d || d.isDeleted || d.status !== "Draft") return;
+            const key = getBatchKey(d);
+            if (seen.has(key)) return;
+            seen.add(key);
+            const hasInvoice = !!d.invoiceFilename;
+            if (!hasInvoice) count++;
+        });
+        return count;
     }, [dispatches]);
 
     const totalPages = Math.max(1, Math.ceil(groupedBilling.length / pageSize));
@@ -328,15 +366,17 @@ export default function Billing({
     };
 
     // ✅ UPDATED: Save Invoice Logic — with E-Way Bill upload + "Send for Packing"
+    const isDraftBatch = editingBatch?.[0]?.status === "Draft";
+
     const handleSaveEdit = async (e) => {
         e.preventDefault();
 
-        if (editForm.status === "Send for Packing" && !editForm.invoiceNo.trim()) {
+        if (!isDraftBatch && editForm.status === "Send for Packing" && !editForm.invoiceNo.trim()) {
             alert("⚠️ Invoice Number is required.");
             return;
         }
 
-        if (editForm.status === "Send for Packing" && isEwayBillRequired) {
+        if (!isDraftBatch && editForm.status === "Send for Packing" && isEwayBillRequired) {
             if (!editForm.ewayBillFile && !editForm.existingEwayBillName) {
                 alert(
                     `⚠️ E-Way Bill is mandatory for orders above ₹50,000.\n\n` +
@@ -411,6 +451,32 @@ export default function Billing({
                 alert("⚠️ Challan upload failed. Please try again.");
                 return;
             }
+        }
+
+        // Draft orders aren't serialized/confirmed yet — saving billing details
+        // here is just prep work. Use the dedicated draft-billing endpoint
+        // (a plain field update) instead of the normal dispatch update path,
+        // which assumes a real assigned serial and would move the order out
+        // of Draft. Draft → Active only happens via Order Processing's Confirm flow.
+        if (isDraftBatch) {
+            const orderGuid = editingBatch[0]?._orderId || editingBatch[0]?.orderId || editingBatch[0]?.guid || editingBatch[0]?.id;
+            try {
+                await printerService.updateDraftBilling(orderGuid, {
+                    invoiceNumber: editForm.invoiceNo,
+                    invoiceDate: editForm.invoiceDate || null,
+                    ewayBillNumber: editForm.ewayBill,
+                    gemBillUploaded: editForm.gemUploaded,
+                    invoiceFilename: filename,
+                    ewayBillFilename: ewayBillFilename || null,
+                });
+            } catch (error) {
+                console.error("Failed to save draft billing details", error);
+                alert("Failed to save billing details.");
+                return;
+            }
+            closeEditModal();
+            if (onRefresh) onRefresh();
+            return;
         }
 
         // ✅ UPDATED: Map final statuses for backend
@@ -533,6 +599,17 @@ export default function Billing({
                     {/* Tab Switcher */}
                     <div className="flex bg-slate-100 p-1 rounded-xl shadow-inner">
                         <button
+                            onClick={() => { setActiveTab("draft"); setCurrentPage(1); }}
+                            className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${activeTab === "draft" ? "bg-white text-slate-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                        >
+                            <FileText size={14} /> Draft
+                            {draftOrdersCount > 0 && (
+                                <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${draftPendingBillCount > 0 ? "bg-amber-100 text-amber-700 animate-pulse" : "bg-slate-200 text-slate-700"}`}>
+                                    {draftOrdersCount}
+                                </span>
+                            )}
+                        </button>
+                        <button
                             onClick={() => { setActiveTab("billing"); setCurrentPage(1); }}
                             className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${activeTab === "billing" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
                         >
@@ -556,10 +633,19 @@ export default function Billing({
                                 </div>
                             </div>
                         )}
+                        {activeTab === "draft" && draftPendingBillCount > 0 && (
+                            <div className="flex items-center gap-2 bg-amber-50 px-4 py-2 rounded-xl border border-amber-200 shadow-sm animate-pulse">
+                                <AlertTriangle size={16} className="text-amber-600" />
+                                <div>
+                                    <p className="text-[10px] text-amber-600 uppercase font-bold">Bill Pending</p>
+                                    <p className="text-base font-bold text-amber-800">{draftPendingBillCount} Draft Order{draftPendingBillCount > 1 ? "s" : ""}</p>
+                                </div>
+                            </div>
+                        )}
                         <div className="flex items-center gap-2 bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 shadow-sm">
                             <IndianRupee size={16} className="text-indigo-600" />
                             <div>
-                                <p className="text-[10px] text-indigo-500 uppercase font-bold">Total {activeTab === "billing" ? "Unbilled" : "Receivable"}</p>
+                                <p className="text-[10px] text-indigo-500 uppercase font-bold">Total {activeTab === "billing" ? "Unbilled" : activeTab === "draft" ? "Draft Value" : "Receivable"}</p>
                                 <p className="text-base font-bold text-indigo-800">₹{totalBillingRevenue.toLocaleString('en-IN')}</p>
                             </div>
                         </div>
@@ -571,7 +657,7 @@ export default function Billing({
             <div className="flex flex-wrap items-center gap-3">
                 <div className="w-full md:w-72 relative group">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input className="w-full border border-slate-200 pl-9 pr-3 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm bg-white" placeholder={`Search ${activeTab === 'billing' ? 'billing' : 'payment'} orders...`} value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} />
+                    <input className="w-full border border-slate-200 pl-9 pr-3 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all shadow-sm bg-white" placeholder={`Search ${activeTab === 'billing' ? 'billing' : activeTab === 'draft' ? 'draft' : 'payment'} orders...`} value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} />
                     {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={14} /></button>}
                 </div>
                 <div className="relative">
@@ -588,6 +674,14 @@ export default function Billing({
                     </select>
                     <ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
+                <DayFilterSelect
+                    value={dayFilter}
+                    onChange={(v) => { setDayFilter(v); setCurrentPage(1); }}
+                    customStart={customStart}
+                    onCustomStartChange={setCustomStart}
+                    customEnd={customEnd}
+                    onCustomEndChange={setCustomEnd}
+                />
             </div>
 
             {/* TABLE */}
@@ -598,7 +692,7 @@ export default function Billing({
                         <span className={`relative inline-flex rounded-full h-2 w-2 ${activeTab === 'payment' ? 'bg-emerald-500' : 'bg-indigo-500'}`}></span>
                     </span>
                     <span className="text-xs font-bold text-slate-700">
-                        {activeTab === 'billing' ? 'Orders Awaiting Invoice' : 'Orders Awaiting Payment'} ({groupedBilling.length})
+                        {activeTab === 'billing' ? 'Orders Awaiting Invoice' : activeTab === 'draft' ? 'Draft Orders — Upload Bill' : 'Orders Awaiting Payment'} ({groupedBilling.length})
                     </span>
                 </div>
 
@@ -611,9 +705,9 @@ export default function Billing({
                                 <th className="p-4 text-left">Platform</th>
                                 <th className="p-4 text-left">Model</th>
                                 <th className="p-4 text-center">Amount</th>
-                                <th className="p-4 text-center">{activeTab === 'billing' ? 'Order Date' : 'Delivery Date'}</th>
+                                <th className="p-4 text-center">{activeTab === 'payment' ? 'Delivery Date' : 'Order Date'}</th>
                                 <th className="p-4 text-left">Contact No.</th>
-                                <th className="w-32 p-4 text-center">Action</th>
+                                <th className="w-40 p-4 text-center">{activeTab === 'draft' ? 'Draft Bill' : 'Action'}</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -621,7 +715,9 @@ export default function Billing({
                                 <tr><td colSpan="100" className="p-12 text-center text-sm font-medium text-slate-400">
                                     {activeTab === 'billing'
                                         ? 'No pending bills. Check Dispatch to send orders here.'
-                                        : 'No pending payments. Ensure orders are marked "Delivered" in Dispatch.'}
+                                        : activeTab === 'draft'
+                                            ? 'No draft orders. Create one from Order Processing\'s Draft tab.'
+                                            : 'No pending payments. Ensure orders are marked "Delivered" in Dispatch.'}
                                 </td></tr>
                             ) : (
                                 currentDispatches.map((group, index) => {
@@ -737,9 +833,9 @@ export default function Billing({
                                             <td className="p-4 text-center">
                                                 <div className="flex flex-col items-center gap-1">
                                                     <span className="text-xs text-slate-600 font-medium">
-                                                        {activeTab === 'billing'
-                                                            ? (item.orderDate ? format(new Date(item.orderDate), "dd MMM, yyyy") : "-")
-                                                            : (item.logisticsDispatchDate ? format(new Date(item.logisticsDispatchDate), "dd MMM, yyyy") : "-")
+                                                        {activeTab === 'payment'
+                                                            ? (item.logisticsDispatchDate ? format(new Date(item.logisticsDispatchDate), "dd MMM, yyyy") : "-")
+                                                            : (item.orderDate ? format(new Date(item.orderDate), "dd MMM, yyyy") : "-")
                                                         }
                                                     </span>
                                                     {isGroupDue && (
@@ -765,7 +861,7 @@ export default function Billing({
                                                     >
                                                         <Palette size={14} />
                                                     </button>
-                                                    {activeTab === 'billing' ? (
+                                                    {(activeTab === 'billing' || activeTab === 'draft') ? (
                                                         <button disabled={!canManage} onClick={() => handleEditClick(group)} title="Generate Bill" className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow-sm text-xs font-bold justify-center disabled:opacity-50 disabled:cursor-not-allowed">
                                                             <Edit2 size={12} />
                                                             Process
@@ -1458,6 +1554,14 @@ export default function Billing({
                                 </div>
 
                                 {/* ── Final Action ── */}
+                                {isDraftBatch ? (
+                                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                                        <FileText size={14} className="text-slate-400 shrink-0" />
+                                        <p className="text-[11px] text-slate-600 font-semibold">
+                                            This order is still in Draft — saving here only stores billing details early. It moves to Active from Order Processing's Confirm step.
+                                        </p>
+                                    </div>
+                                ) : (
                                 <div>
                                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Final Action</p>
                                     <div className="grid grid-cols-2 gap-2">
@@ -1488,6 +1592,7 @@ export default function Billing({
                                         </div>
                                     )}
                                 </div>
+                                )}
                             </div>
 
                             {/* Modal Footer */}

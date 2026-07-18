@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth, ApiError } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany, ApiError } from "@/lib/auth";
 import { uploadDir } from "@/lib/upload";
 import { buildGatepassHtml } from "@/lib/gatepassHtml";
 import { withErrorHandling } from "@/lib/apiResponse";
@@ -9,6 +9,7 @@ import { withErrorHandling } from "@/lib/apiResponse";
 export const GET = withErrorHandling(async (request, { params }) => {
   const user = await authenticateRequest(request);
   requireAuth(user);
+  requireCompany(user);
   const { orderGuid } = await params;
 
   const [orderRows] = await mysqlPool.query(`
@@ -16,9 +17,9 @@ export const GET = withErrorHandling(async (request, { params }) => {
            o.customerName, o.consigneeName, o.shippingAddress, o.address, o.buyerAddress,
            o.contactNumber, o.invoiceNumber, o.orderDate, o.dispatchDate
     FROM orders o
-    WHERE o.guid = ?
+    WHERE o.guid = ? AND o.companyGuid = ?
     LIMIT 1
-  `, [orderGuid]);
+  `, [orderGuid, user.companyId]);
 
   if (!orderRows.length) throw new ApiError(404, "Order not found");
   const order = orderRows[0];
@@ -28,16 +29,16 @@ export const GET = withErrorHandling(async (request, { params }) => {
            s.value AS serialValue,
            m.name  AS modelName, m.company AS companyName
     FROM order_items oi
-    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid
-    LEFT JOIN models  m ON s.modelGuid = m.guid
-    WHERE oi.orderGuid = ?
+    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid AND s.companyGuid = oi.companyGuid
+    LEFT JOIN models  m ON s.modelGuid = m.guid AND m.companyGuid = oi.companyGuid
+    WHERE oi.orderGuid = ? AND oi.companyGuid = ?
     ORDER BY oi.guid ASC
-  `, [orderGuid]);
+  `, [orderGuid, user.companyId]);
 
   let logoDataUrl = null;
   let companyName = null;
   try {
-    const [tpl] = await mysqlPool.query("SELECT companyName FROM warranty_template WHERE id=1");
+    const [tpl] = await mysqlPool.query("SELECT companyName FROM warranty_template WHERE companyGuid=? LIMIT 1", [user.companyId]);
     if (tpl[0]) companyName = tpl[0].companyName || null;
   } catch {}
   try {

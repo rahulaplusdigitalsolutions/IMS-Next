@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany } from "@/lib/auth";
 import { authorizeInventory } from "@/lib/inventoryAuth";
 import { createNotification } from "@/lib/notifications";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
@@ -11,12 +11,13 @@ export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   authorizeInventory(user, "POST");
   requireAuth(user);
+  requireCompany(user);
 
   const { ItemVariantId, ItemId, VariantCode } = body;
   if (ItemVariantId && ItemVariantId !== "0" && ItemVariantId !== "") {
-    await mysqlPool.execute("UPDATE inventoryitemvariant SET variantName = ? WHERE itemVariantId = ?", [VariantCode, ItemVariantId]);
+    await mysqlPool.execute("UPDATE inventoryitemvariant SET variantName = ? WHERE itemVariantId = ? AND companyGuid = ?", [VariantCode, ItemVariantId, user.companyId]);
   } else {
-    await mysqlPool.execute("INSERT INTO inventoryitemvariant (itemVariantId, itemId, variantName) VALUES (?, ?, ?)", [uuidv4(), ItemId, VariantCode]);
+    await mysqlPool.execute("INSERT INTO inventoryitemvariant (itemVariantId, companyGuid, itemId, variantName) VALUES (?, ?, ?, ?)", [uuidv4(), user.companyId, ItemId, VariantCode]);
   }
 
   // Only serialized items (printers etc.) belong in the Models approval flow —
@@ -103,6 +104,7 @@ export const POST = withErrorHandling(async (request) => {
           type: "info",
           priority: "low",
           link: "/models?tab=approvals",
+          companyGuid: user.companyId,
         });
       }
     } catch (e) {

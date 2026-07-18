@@ -54,6 +54,9 @@ export default function LoginPage() {
       }
 
       setSession({ user: result.user, token: result.token });
+      if (Array.isArray(result.companies)) {
+        window.localStorage.setItem("pt_companies", JSON.stringify(result.companies));
+      }
       Swal.fire({ title: "Success!", text: "Logged in successfully", icon: "success", timer: 1500, showConfirmButton: false });
       navTimer = setTimeout(() => { router.push("/"); }, 1500);
     } catch (err) {

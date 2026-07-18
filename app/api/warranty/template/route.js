@@ -1,22 +1,26 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest } from "@/lib/auth";
+import { authenticateRequest, requireCompany } from "@/lib/auth";
 import { authorizeWarranty } from "@/lib/warrantyAuth";
 import { logUserActivity } from "@/lib/helpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
 export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeWarranty(user, "GET");
 
-  const [rows] = await mysqlPool.query("SELECT * FROM warranty_template WHERE id=1");
+  const [rows] = await mysqlPool.query("SELECT * FROM warranty_template WHERE companyGuid=? LIMIT 1", [user.companyId]);
   return NextResponse.json(rows[0] || {});
 });
 
 // Accepts any combination of: htmlBody, docxRawText, docxFileName, docxBase64
+// One row per company — auto-created on first save (was a single global id=1
+// row before multi-company support; each company now gets its own template).
 export const PUT = withErrorHandling(async (request) => {
   const body = await parseJsonBody(request);
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeWarranty(user, "PUT");
 
   const { htmlBody, docxRawText, docxFileName, docxBase64, clearHeader,
@@ -45,8 +49,13 @@ export const PUT = withErrorHandling(async (request) => {
   }
 
   if (setClauses.length > 0) {
-    sqlParams.push(1); // WHERE id=1
-    await mysqlPool.query(`UPDATE warranty_template SET ${setClauses.join(",")} WHERE id=1`, sqlParams);
+    const [existing] = await mysqlPool.query("SELECT id FROM warranty_template WHERE companyGuid=? LIMIT 1", [user.companyId]);
+    if (existing.length > 0) {
+      await mysqlPool.query(`UPDATE warranty_template SET ${setClauses.join(",")} WHERE companyGuid=?`, [...sqlParams, user.companyId]);
+    } else {
+      await mysqlPool.query("INSERT INTO warranty_template (companyGuid) VALUES (?)", [user.companyId]);
+      await mysqlPool.query(`UPDATE warranty_template SET ${setClauses.join(",")} WHERE companyGuid=?`, [...sqlParams, user.companyId]);
+    }
   }
 
   await logUserActivity(mysqlPool, user, "Update Warranty Template", [], request.headers.get("x-forwarded-for") || null);

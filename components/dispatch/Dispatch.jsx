@@ -14,6 +14,9 @@ import api from "@/lib/client/apiClient";
 import AppearanceModal from "@/components/common/AppearanceModal";
 import { Palette } from "lucide-react";
 import MasterDropdown from "@/components/common/MasterDropdown";
+import { useCompany } from "@/lib/client/CompanyContext";
+import DayFilterSelect from "@/components/common/DayFilterSelect";
+import { getDayFilterRange, isWithinDayFilter } from "@/lib/client/dayFilter";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 const UPLOADS_BASE_URL = API_BASE_URL.replace(/\/api\/?$/, "").replace(/\/$/, "");
@@ -186,7 +189,10 @@ export default function Dispatch({
   onRefresh,
   isAdmin,
   isSupervisor,
-  isAccountant
+  isAccountant,
+  initialDayFilter = "all",
+  initialCustomStart = "",
+  initialCustomEnd = "",
 }) {
   const [activeTabView, setActiveTabView] = useState("active");
   const [currentPage, setCurrentPage] = useState(1);
@@ -196,6 +202,10 @@ export default function Dispatch({
   const [selectedIndices, setSelectedIndices] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [platformFilter, setPlatformFilter] = useState("All");
+  const [dayFilter, setDayFilter] = useState(initialDayFilter);
+  const [customStart, setCustomStart] = useState(initialCustomStart);
+  const [customEnd, setCustomEnd] = useState(initialCustomEnd);
+  const dayRange = useMemo(() => getDayFilterRange(dayFilter, customStart, customEnd), [dayFilter, customStart, customEnd]);
   const [viewOrder, setViewOrder] = useState(null);
   const [showPackagingModal, setShowPackagingModal] = useState(false);
   const [editingModelId, setEditingModelId] = useState(null);
@@ -205,6 +215,9 @@ export default function Dispatch({
   const [isCreatingShipment, setIsCreatingShipment] = useState(false);
   const [isTrackingShipment, setIsTrackingShipment] = useState(false);
   const [shipmentTrackInfo, setShipmentTrackInfo] = useState(null);
+  const [pickupForm, setPickupForm] = useState({ pickupDate: "", pickupTime: "", packageCount: "1" });
+  const [isRequestingPickup, setIsRequestingPickup] = useState(false);
+  const [pickupResult, setPickupResult] = useState(null);
   const [logisticsForm, setLogisticsForm] = useState({
     dispatchDate: "",
     courierPartner: "",
@@ -229,7 +242,19 @@ export default function Dispatch({
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewTitle, setPreviewTitle] = useState("Document Preview");
 
-  const canManage = (currentUser?.role === 'Admin' || currentUser?.role === 'SuperAdmin') || !!currentUser?.allow_edit_dispatch;
+  const { activeCompany } = useCompany();
+  const allowed = activeCompany?.allowedPlatforms;
+  
+  const allPlatforms = [
+    { value: "Amazon" },
+    { value: "Flipkart" },
+    { value: "GeM" },
+    { value: "Other" },
+  ];
+  
+  const platforms = allowed ? allPlatforms.filter(p => allowed.includes(p.value)) : allPlatforms;
+
+  const canManage = currentUser?.role === 'Admin' || !!currentUser?.allow_edit_dispatch;
 
   useEffect(() => {
     setLocalModels(models);
@@ -281,6 +306,8 @@ export default function Dispatch({
     const pod_pending = [];
 
     dispatches.forEach((d) => {
+      if (d.status === "Draft") return;
+
       const isOnHold = d.status === "Order On Hold" || d.status === "Order Not Confirmed";
       if (isOnHold) return;
 
@@ -368,17 +395,22 @@ export default function Dispatch({
 
   const allGroupedDispatches = useMemo(() => {
     const groups = {};
-    const sourceDispatches = activeTabView === "delivered"
-      ? deliveredDispatches
-      : activeTabView === "rto"
-        ? rtoDispatches
-        : activeTabView === "cancelled"
-          ? cancelledDispatches
-          : activeTabView === "in_transit"
-            ? inTransitDispatches
-            : activeTabView === "pod_pending"
-              ? podPendingDispatches
-              : activeDispatches;
+    // When searching, look across every tab (Active/In Transit/POD Pending/
+    // Delivered/RTO/Cancelled) instead of only the currently selected one, so
+    // an order shows up no matter which tab it actually belongs to.
+    const sourceDispatches = searchTerm.trim()
+      ? [...activeDispatches, ...inTransitDispatches, ...podPendingDispatches, ...deliveredDispatches, ...rtoDispatches, ...cancelledDispatches]
+      : activeTabView === "delivered"
+        ? deliveredDispatches
+        : activeTabView === "rto"
+          ? rtoDispatches
+          : activeTabView === "cancelled"
+            ? cancelledDispatches
+            : activeTabView === "in_transit"
+              ? inTransitDispatches
+              : activeTabView === "pod_pending"
+                ? podPendingDispatches
+                : activeDispatches;
 
     const filtered = sourceDispatches.filter((d) => {
       const { serial } = getDetails(d.serialNumberId || d.serialNumberGuid || d.serialGuid || d.serialId, d);
@@ -391,7 +423,8 @@ export default function Dispatch({
         (d.modelName || "").toLowerCase().includes(term)
       );
       const matchesPlatform = platformFilter === "All" || (d.firmName || "Other") === platformFilter;
-      return matchesSearch && matchesPlatform;
+      const matchesDay = isWithinDayFilter(d.dispatchDate || d.createdAt, dayRange);
+      return matchesSearch && matchesPlatform && matchesDay;
     });
 
     filtered.forEach((d) => {
@@ -403,7 +436,7 @@ export default function Dispatch({
     return Object.values(groups).sort(
       (a, b) => new Date(b[0].dispatchDate || b[0].createdAt || 0) - new Date(a[0].dispatchDate || a[0].createdAt || 0)
     );
-  }, [activeDispatches, deliveredDispatches, rtoDispatches, cancelledDispatches, inTransitDispatches, podPendingDispatches, activeTabView, searchTerm, platformFilter, getDetails]);
+  }, [activeDispatches, deliveredDispatches, rtoDispatches, cancelledDispatches, inTransitDispatches, podPendingDispatches, activeTabView, searchTerm, platformFilter, getDetails, dayRange]);
 
   const totalPages = Math.max(1, Math.ceil(allGroupedDispatches.length / itemsPerPage));
 
@@ -610,8 +643,14 @@ export default function Dispatch({
   const handleCreateDelhiveryShipment = async () => {
     const rep = Array.isArray(logisticsBatch) ? logisticsBatch[0] : null;
     if (!rep) { alert("No order selected."); return; }
-    if (!rep.consigneeName || !rep.shippingAddress || !rep.contactNumber) {
-      alert("Order is missing consignee name, shipping address, or contact number — cannot create shipment.");
+    // consigneeName is a genuinely optional field on orders (shown elsewhere
+    // as `consigneeName || "N/A"`) — customerName is the one that's always
+    // populated, so use that as the primary name and consigneeName only as
+    // an override when present. Same for shippingAddress vs address.
+    const shipName = rep.consigneeName || rep.customerName || rep.customer;
+    const shipAddress = rep.shippingAddress || rep.address;
+    if (!shipName || !shipAddress || !rep.contactNumber) {
+      alert("Order is missing customer name, shipping address, or contact number — cannot create shipment.");
       return;
     }
 
@@ -619,7 +658,7 @@ export default function Dispatch({
     // Indian pincode out of the free-text shipping address, and if that
     // fails, ask for it directly rather than silently sending a blank pin
     // (Delhivery rejects shipments with no/invalid pincode).
-    const pincodeMatch = String(rep.shippingAddress || "").match(/\b\d{6}\b/);
+    const pincodeMatch = String(shipAddress || "").match(/\b\d{6}\b/);
     let consigneePincode = pincodeMatch ? pincodeMatch[0] : "";
     if (!consigneePincode) {
       const entered = window.prompt("Could not detect a pincode in the shipping address. Please enter the 6-digit delivery pincode:");
@@ -634,8 +673,8 @@ export default function Dispatch({
     try {
       const result = await printerService.createShipment({
         orderId: rep.orderid || rep.id,
-        consigneeName: rep.consigneeName,
-        consigneeAddress: rep.shippingAddress,
+        consigneeName: shipName,
+        consigneeAddress: shipAddress,
         consigneePincode,
         consigneePhone: rep.contactNumber,
         paymentMode: "Prepaid",
@@ -648,6 +687,27 @@ export default function Dispatch({
       alert("Failed to create Delhivery shipment: " + (error.response?.data?.message || error.message));
     } finally {
       setIsCreatingShipment(false);
+    }
+  };
+
+  const handleRequestDelhiveryPickup = async () => {
+    if (!pickupForm.pickupDate || !pickupForm.pickupTime) {
+      alert("Please choose a pickup date and time.");
+      return;
+    }
+    setIsRequestingPickup(true);
+    setPickupResult(null);
+    try {
+      const result = await printerService.requestPickup({
+        pickupDate: pickupForm.pickupDate,
+        pickupTime: pickupForm.pickupTime,
+        packageCount: Number(pickupForm.packageCount) || 1,
+      });
+      setPickupResult({ ok: true, message: result.message || "Pickup requested successfully." });
+    } catch (error) {
+      setPickupResult({ ok: false, message: error.response?.data?.message || error.message });
+    } finally {
+      setIsRequestingPickup(false);
     }
   };
 
@@ -875,6 +935,14 @@ export default function Dispatch({
             </select>
             <ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
           </div>
+          <DayFilterSelect
+            value={dayFilter}
+            onChange={(v) => { setDayFilter(v); setCurrentPage(1); }}
+            customStart={customStart}
+            onCustomStartChange={setCustomStart}
+            customEnd={customEnd}
+            onCustomEndChange={setCustomEnd}
+          />
           <button onClick={toggleSelectionMode} className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${isSelectionMode ? "bg-slate-800 text-white shadow-lg" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 shadow-sm"}`}>{isSelectionMode ? <X size={14} /> : <CheckSquare size={14} />}{isSelectionMode ? "Cancel" : "Select"}</button>
         </div>
       </div>
@@ -1135,6 +1203,47 @@ export default function Dispatch({
                   </div>
                 )}
               </div>
+
+              {isDelhiveryCourier && logisticsForm.trackingId && !isDeliveredLogisticsLocked && (
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                  <label className="block text-xs font-bold text-amber-700 mb-2 uppercase tracking-wide flex items-center gap-2">
+                    <Truck size={14} /> Request Delhivery Pickup
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="date"
+                      className="border p-2 rounded-lg text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+                      value={pickupForm.pickupDate}
+                      onChange={(e) => setPickupForm({ ...pickupForm, pickupDate: e.target.value })}
+                    />
+                    <input
+                      type="time"
+                      className="border p-2 rounded-lg text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+                      value={pickupForm.pickupTime}
+                      onChange={(e) => setPickupForm({ ...pickupForm, pickupTime: e.target.value })}
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      className="border p-2 rounded-lg text-xs focus:ring-2 focus:ring-amber-500 outline-none"
+                      placeholder="Packages"
+                      value={pickupForm.packageCount}
+                      onChange={(e) => setPickupForm({ ...pickupForm, packageCount: e.target.value })}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRequestDelhiveryPickup}
+                    disabled={isRequestingPickup}
+                    className="mt-2 w-full px-3 py-2 rounded-xl text-xs font-bold bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    {isRequestingPickup ? "Requesting..." : "Request Pickup"}
+                  </button>
+                  {pickupResult && (
+                    <p className={`mt-2 text-xs font-semibold ${pickupResult.ok ? "text-emerald-700" : "text-red-600"}`}>{pickupResult.message}</p>
+                  )}
+                </div>
+              )}
 
               {logisticsForm.logisticsStatus === "Delivered" && (
                 <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100">

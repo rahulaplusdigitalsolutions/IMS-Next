@@ -12,7 +12,7 @@ export const DELETE = withErrorHandling(async (request) => {
   requireAuth(user);
 
   const role = user?.role;
-  const allowedRoles = ["Admin", "SuperAdmin", "Accountant", "Supervisor"];
+  const allowedRoles = ["Admin", "Accountant", "Supervisor"];
   if (!allowedRoles.includes(role) && !user?.allow_edit_dispatch) {
     throw new ApiError(403, "You do not have permission to delete documents.");
   }

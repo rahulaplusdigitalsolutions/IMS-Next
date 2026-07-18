@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth, ApiError } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany, ApiError } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
 export const PUT = withErrorHandling(async (request, { params }) => {
   const user = await authenticateRequest(request);
   requireAuth(user);
+  requireCompany(user);
   const { guid } = await params;
 
   const { reason } = await parseJsonBody(request);
@@ -29,6 +30,7 @@ export const PUT = withErrorHandling(async (request, { params }) => {
       type: "warning",
       priority: "low",
       link: "/models",
+      companyGuid: user.companyId,
     });
   }
 

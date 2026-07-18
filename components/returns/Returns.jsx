@@ -354,7 +354,7 @@ const createOptimisticReturn = ({
 };
 
 export default function Returns({ returns = [], isLoaded = false, onRefresh, isAdmin, isSupervisor, currentUser }) {
-  const canManage = (currentUser?.role === 'Admin' || currentUser?.role === 'SuperAdmin') || !!currentUser?.allow_edit_returns;
+  const canManage = currentUser?.role === 'Admin' || !!currentUser?.allow_edit_returns;
   const [serialInput, setSerialInput] = useState("");
   const [returnsList, setReturnsList] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1012,13 +1012,13 @@ export default function Returns({ returns = [], isLoaded = false, onRefresh, isA
     try {
       const dispatchDetails = await printerService.getDispatchById(dispatchGuid);
       if (!dispatchDetails) {
-        setOrderDetailsError("Order details fetch nahi ho payi.");
+        setOrderDetailsError("Could not fetch order details.");
         return;
       }
       setSelectedDispatchDetails(dispatchDetails);
     } catch (error) {
       console.error("Failed to load order details:", error);
-      setOrderDetailsError("Order details load nahi ho payi.");
+      setOrderDetailsError("Could not load order details.");
     } finally {
       setLoadingOrderDetails(false);
     }

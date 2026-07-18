@@ -3,8 +3,8 @@
 import React from "react";
 import {
   AlertCircle, Ban, Box, Building, Calendar, Check, CheckCircle, CheckSquare,
-  Edit3, ExternalLink, Eye, FileText, Hash, Loader2, Mail, Package, PauseCircle, Phone, Plus, RefreshCw,
-  RotateCcw, Save, Send, Trash2, Truck, UploadCloud, User, Wrench, X,
+  ClipboardList, Edit3, ExternalLink, Eye, FileText, Hash, Loader2, Mail, Package, PauseCircle, Phone, Plus, RefreshCw,
+  RotateCcw, Save, Send, Trash2, Truck, UploadCloud, User, Wrench, X, Zap,
 } from "lucide-react";
 import api from "@/lib/client/apiClient";
 import { format } from "date-fns";
@@ -14,10 +14,43 @@ import {
   normalizeSerial, resolveDisplayStatus, safeFormatDate, toLocalDateStr,
 } from "./helpers";
 import { StatusBadge, StatusTimeline } from "./parts";
+import PincodeCheckWidget from "./PincodeCheckWidget";
 
 function openHpWarrantyBridge(serial) {
   const url = `https://support.hp.com/in-en/checkwarranty?serialnumber=${encodeURIComponent(serial)}`;
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+// Single document tile used throughout the Documents tab — either shows a
+// "View" button once `filename` is set, or a custom `action` button (e.g.
+// Gate Pass, which generates on demand rather than checking for a filename).
+function DocCard({ label, filename, onView, accentBg, accentText, buttonClass, action }) {
+  return (
+    <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 hover:border-slate-300 hover:shadow-sm transition-all">
+      <div className="flex items-center gap-2.5 mb-3">
+        <div className={`w-8 h-8 rounded-lg ${accentBg} ${accentText} flex items-center justify-center shrink-0`}>
+          <FileText size={15} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold text-slate-700 truncate">{label}</p>
+          {action === undefined && (
+            filename ? (
+              <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1"><CheckCircle size={9} /> Verified</span>
+            ) : (
+              <span className="text-[10px] text-slate-400 font-bold">Not uploaded</span>
+            )
+          )}
+        </div>
+      </div>
+      {action !== undefined ? action : filename ? (
+        <button onClick={onView} className={`w-full text-xs font-bold ${buttonClass} text-white py-2 rounded-lg transition-colors flex items-center justify-center gap-1.5 active:scale-95`}>
+          <Eye size={12} /> View
+        </button>
+      ) : (
+        <div className="text-xs text-slate-300 italic text-center py-2 bg-white rounded-lg border border-dashed border-slate-200">Pending</div>
+      )}
+    </div>
+  );
 }
 
 export default function OrderDetailModal({
@@ -208,7 +241,7 @@ export default function OrderDetailModal({
   return (
     <>
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 backdrop-blur-sm p-3 overflow-y-auto" onClick={closeModal}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl my-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl my-4" onClick={(e) => e.stopPropagation()}>
 
             {/* Modal Header */}
             {(() => {
@@ -223,7 +256,7 @@ export default function OrderDetailModal({
               let representativeItemModal = selectedBatch.activeItems?.find(i => String(i.status).trim() !== "Completed") || selectedBatch.activeItems?.[0] || selectedBatch.items[0];
               let rawStatusModal = representativeItemModal.status;
               let modalDisplayStatus = resolveDisplayStatus(rawStatusModal);
-              const processingPhasesModal = ["Pending", "Order Confirmed", "Order Not Confirmed", "Send for Billing", "Billing", "Order Cancelled", "Returned", "Completed"];
+              const processingPhasesModal = ["Pending", "Order Confirmed", "Order Not Confirmed", "Send for Billing", "Billing", "Order Cancelled", "Returned", "Completed", "Draft"];
               if (!processingPhasesModal.includes(rawStatusModal) && !processingPhasesModal.includes(modalDisplayStatus) && representativeItemModal.logisticsStatus) {
                 modalDisplayStatus = representativeItemModal.logisticsStatus;
               }
@@ -289,7 +322,7 @@ export default function OrderDetailModal({
 
               return (
                 <>
-                  <div className={`p-4 rounded-t-xl ${isEditMode
+                  <div className={`p-4 rounded-t-2xl ${isEditMode
                       ? "bg-gradient-to-r from-amber-600 to-orange-700"
                       : isCancelledOrder
                         ? "bg-gradient-to-r from-red-700 to-red-900"
@@ -840,21 +873,21 @@ export default function OrderDetailModal({
                         })()}
 
                         {/* ── MODAL TABS ── */}
-                        <div className="flex border-b border-slate-200 -mx-4 px-4 gap-1">
+                        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl w-fit">
                           {[
-                            { id: "details", label: "Details", icon: "📋" },
-                            { id: "documents", label: "Documents", icon: "📄" },
-                            { id: "actions", label: "Actions", icon: "⚡" },
+                            { id: "details", label: "Details", Icon: ClipboardList },
+                            { id: "documents", label: "Documents", Icon: FileText },
+                            { id: "actions", label: "Actions", Icon: Zap },
                           ].map(tab => (
                             <button
                               key={tab.id}
                               onClick={() => setModalDetailTab(tab.id)}
-                              className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors flex items-center gap-1.5 ${modalDetailTab === tab.id
-                                ? "border-indigo-500 text-indigo-600"
-                                : "border-transparent text-slate-500 hover:text-slate-700"
+                              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${modalDetailTab === tab.id
+                                ? "bg-white text-indigo-600 shadow-sm"
+                                : "text-slate-500 hover:text-slate-700"
                               }`}
                             >
-                              <span>{tab.icon}</span> {tab.label}
+                              <tab.Icon size={14} /> {tab.label}
                             </button>
                           ))}
                         </div>
@@ -947,7 +980,7 @@ export default function OrderDetailModal({
                                   ...(selectedBatch.invoiceDate ? [{ label: "Invoice Date", value: safeFormatDate(selectedBatch.invoiceDate) || selectedBatch.invoiceDate }] : []),
                                   { label: "Warranty", value: selectedBatch.warranty || "N/A" },
                                   ...(selectedBatch.warrantyStartDate ? [{ label: "Warranty Start Date", value: safeFormatDate(selectedBatch.warrantyStartDate) }] : []),
-                                  ...((currentUser?.role === "Admin" || currentUser?.role === "SuperAdmin") ? [
+                                  ...(currentUser?.role === "Admin" ? [
                                     { label: "Dispatched By", value: selectedBatch.dispatchedBy || "Unknown" },
                                     ...(isCancelledOrder ? [{ label: "Cancelled By", value: selectedBatch.cancelledBy || "Unknown" }] : [])
                                   ] : [])
@@ -957,6 +990,7 @@ export default function OrderDetailModal({
                                     <p className={`text-xs font-semibold text-slate-800 break-words ${item.break ? "whitespace-pre-wrap" : ""}`}>{item.value}</p>
                                   </div>
                                 ))}
+                                <PincodeCheckWidget address={selectedBatch.shippingAddress || selectedBatch.buyerAddress} />
                               </div>
                               {(() => {
                                 if (!selectedBatch.warrantyStartDate || !selectedBatch.invoiceDate) return null;
@@ -1319,113 +1353,75 @@ export default function OrderDetailModal({
                         {modalDetailTab === "documents" && <div className="space-y-3">
 
                         {/* Audit Documents */}
-                        <div className="bg-slate-900 rounded-2xl p-4 text-white shadow-xl">
-                          <h3 className="text-xs font-black text-white/60 uppercase tracking-widest mb-4 flex items-center gap-2">
-                            <FileText size={14} /> Audit Documents
-                          </h3>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                          <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-4 py-3 flex items-center gap-2">
+                            <FileText size={14} className="text-white/70" />
+                            <h3 className="text-xs font-black text-white uppercase tracking-widest">Audit Documents</h3>
+                          </div>
+                          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             {(() => {
                               const isMarketplace = selectedBatch.firmName === "Amazon" || selectedBatch.firmName === "Flipkart";
+                              const selectedBatchChallanFilename =
+                                (selectedBatch.documents || []).find((d) => d.docType === "challan")?.filename || null;
+                              const gatePassAction = (
+                                <button onClick={downloadGatepass} disabled={gatepassLoading} className="w-full text-xs font-bold bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white py-2 rounded-lg transition-colors flex items-center justify-center gap-1.5 active:scale-95">
+                                  {gatepassLoading ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />} Download
+                                </button>
+                              );
                               if (isMarketplace) {
                                 return (
                                   <>
-                                    <div className="bg-white/5 rounded-xl p-3 border border-white/10 hover:bg-white/10 transition-colors group">
-                                      <p className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-2">Tax Invoice (Custom)</p>
-                                      {selectedBatch.invoiceFilename ? (
-                                        <div className="flex flex-col gap-2">
-                                          <button onClick={() => handleViewDocument(selectedBatch.invoiceFilename)} className="w-full inline-flex items-center justify-center gap-2 text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg transition-all shadow-lg shadow-indigo-900/20 active:scale-95">
-                                            <FileText size={12} /> View Invoice
-                                          </button>
-                                          <span className="text-[10px] text-emerald-400 flex items-center justify-center gap-1 font-bold"><CheckCircle size={10} /> Document Verified</span>
-                                        </div>
-                                      ) : (
-                                        <p className="text-white/30 text-xs font-bold italic py-1.5 text-center bg-white/5 rounded-lg border border-white/5">Not uploaded</p>
-                                      )}
-                                    </div>
-                                    <div className="bg-white/5 rounded-xl p-3 border border-white/10 hover:bg-white/10 transition-colors group">
-                                      <p className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-2">Optional Doc / Challan</p>
-                                      {selectedBatchEwayBillFilename ? (
-                                        <div className="flex flex-col gap-2">
-                                          <button onClick={() => handleViewDocument(selectedBatchEwayBillFilename)} className="w-full inline-flex items-center justify-center gap-2 text-xs font-black bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 rounded-lg transition-all shadow-lg shadow-amber-900/20 active:scale-95">
-                                            <FileText size={12} /> View Document
-                                          </button>
-                                          <span className="text-[10px] text-emerald-400 flex items-center justify-center gap-1 font-bold"><CheckCircle size={10} /> Document Verified</span>
-                                        </div>
-                                      ) : (
-                                        <p className="text-white/30 text-xs font-bold italic py-1.5 text-center bg-white/5 rounded-lg border border-white/5">Not uploaded</p>
-                                      )}
-                                    </div>
-                                    <div className="bg-white/5 rounded-xl p-3 border border-white/10 hover:bg-white/10 transition-colors group">
-                                      <p className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-2">Gate Pass</p>
-                                      <button onClick={downloadGatepass} disabled={gatepassLoading} className="w-full inline-flex items-center justify-center gap-2 text-xs font-black bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded-lg transition-all shadow-lg shadow-emerald-900/20 active:scale-95 disabled:opacity-50">
-                                        {gatepassLoading ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />} Download Gate Pass
-                                      </button>
-                                    </div>
+                                    <DocCard
+                                      label="Tax Invoice (Custom)"
+                                      filename={selectedBatch.invoiceFilename}
+                                      onView={() => handleViewDocument(selectedBatch.invoiceFilename)}
+                                      accentBg="bg-indigo-50" accentText="text-indigo-600" buttonClass="bg-indigo-600 hover:bg-indigo-700"
+                                    />
+                                    <DocCard
+                                      label="Optional Doc / Challan"
+                                      filename={selectedBatchEwayBillFilename}
+                                      onView={() => handleViewDocument(selectedBatchEwayBillFilename)}
+                                      accentBg="bg-amber-50" accentText="text-amber-600" buttonClass="bg-amber-600 hover:bg-amber-700"
+                                    />
+                                    <DocCard label="Gate Pass" accentBg="bg-teal-50" accentText="text-teal-600" action={gatePassAction} />
                                   </>
                                 );
                               }
                               return (
                                 <>
-                                  <div className="bg-white/5 rounded-xl p-3 border border-white/10 hover:bg-white/10 transition-colors group">
-                                    <p className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-2">GeM Contract</p>
-                                    {selectedBatch.contractFilename ? (
-                                      <div className="flex flex-col gap-2">
-                                        <button onClick={() => handleViewDocument(selectedBatch.contractFilename)} className="w-full inline-flex items-center justify-center gap-2 text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg transition-all shadow-lg shadow-indigo-900/20 active:scale-95">
-                                          <FileText size={12} /> View Contract
-                                        </button>
-                                        <span className="text-[10px] text-emerald-400 flex items-center justify-center gap-1 font-bold"><CheckCircle size={10} /> Document Verified</span>
-                                      </div>
-                                    ) : (
-                                      <p className="text-white/30 text-xs font-bold italic py-1.5 text-center bg-white/5 rounded-lg border border-white/5">Not uploaded</p>
-                                    )}
-                                  </div>
-                                  <div className="bg-white/5 rounded-xl p-3 border border-white/10 hover:bg-white/10 transition-colors group">
-                                    <p className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-2">Invoice</p>
-                                    {selectedBatch.invoiceFilename ? (
-                                      <div className="flex flex-col gap-2">
-                                        <button onClick={() => handleViewDocument(selectedBatch.invoiceFilename)} className="w-full inline-flex items-center justify-center gap-2 text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-2 rounded-lg transition-all shadow-lg shadow-indigo-900/20 active:scale-95">
-                                          <FileText size={12} /> View Invoice
-                                        </button>
-                                        <span className="text-[10px] text-emerald-400 flex items-center justify-center gap-1 font-bold"><CheckCircle size={10} /> Document Verified</span>
-                                      </div>
-                                    ) : (
-                                      <p className="text-white/30 text-xs font-bold italic py-1.5 text-center bg-white/5 rounded-lg border border-white/5">Not uploaded</p>
-                                    )}
-                                  </div>
+                                  <DocCard
+                                    label="GeM Contract"
+                                    filename={selectedBatch.contractFilename}
+                                    onView={() => handleViewDocument(selectedBatch.contractFilename)}
+                                    accentBg="bg-indigo-50" accentText="text-indigo-600" buttonClass="bg-indigo-600 hover:bg-indigo-700"
+                                  />
+                                  <DocCard
+                                    label="Invoice"
+                                    filename={selectedBatch.invoiceFilename}
+                                    onView={() => handleViewDocument(selectedBatch.invoiceFilename)}
+                                    accentBg="bg-indigo-50" accentText="text-indigo-600" buttonClass="bg-indigo-600 hover:bg-indigo-700"
+                                  />
+                                  <DocCard
+                                    label="Challan"
+                                    filename={selectedBatchChallanFilename}
+                                    onView={() => handleViewDocument(selectedBatchChallanFilename)}
+                                    accentBg="bg-amber-50" accentText="text-amber-600" buttonClass="bg-amber-600 hover:bg-amber-700"
+                                  />
                                   {shouldShowEwayBillDocument && (
-                                    <div className="bg-white/5 rounded-xl p-3 border border-white/10 hover:bg-white/10 transition-colors group">
-                                      <p className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-2">{isEwayBillRequired ? "E-Way Bill (Req)" : "E-Way Bill"}</p>
-                                      {selectedBatchEwayBillFilename ? (
-                                        <div className="flex flex-col gap-2">
-                                          <button onClick={() => handleViewDocument(selectedBatchEwayBillFilename)} className="w-full inline-flex items-center justify-center gap-2 text-xs font-black bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 rounded-lg transition-all shadow-lg shadow-amber-900/20 active:scale-95">
-                                            <FileText size={12} /> View E-Way Bill
-                                          </button>
-                                          <span className="text-[10px] text-emerald-400 flex items-center justify-center gap-1 font-bold"><CheckCircle size={10} /> Document Verified</span>
-                                        </div>
-                                      ) : (
-                                        <p className="text-white/30 text-xs font-bold italic py-1.5 text-center bg-white/5 rounded-lg border border-white/5">Not uploaded</p>
-                                      )}
-                                    </div>
+                                    <DocCard
+                                      label={isEwayBillRequired ? "E-Way Bill (Required)" : "E-Way Bill"}
+                                      filename={selectedBatchEwayBillFilename}
+                                      onView={() => handleViewDocument(selectedBatchEwayBillFilename)}
+                                      accentBg="bg-amber-50" accentText="text-amber-600" buttonClass="bg-amber-600 hover:bg-amber-700"
+                                    />
                                   )}
-                                  <div className="bg-white/5 rounded-xl p-3 border border-white/10 hover:bg-white/10 transition-colors group">
-                                    <p className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-2">POD</p>
-                                    {selectedBatch.podFilename ? (
-                                      <div className="flex flex-col gap-2">
-                                        <button onClick={() => handleViewDocument(selectedBatch.podFilename)} className="w-full inline-flex items-center justify-center gap-2 text-xs font-black bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-2 rounded-lg transition-all shadow-lg shadow-emerald-900/20 active:scale-95">
-                                          <FileText size={12} /> View POD
-                                        </button>
-                                        <span className="text-[10px] text-emerald-400 flex items-center justify-center gap-1 font-bold"><CheckCircle size={10} /> Document Verified</span>
-                                      </div>
-                                    ) : (
-                                      <p className="text-white/30 text-xs font-bold italic py-1.5 text-center bg-white/5 rounded-lg border border-white/5">Not uploaded</p>
-                                    )}
-                                  </div>
-                                  <div className="bg-white/5 rounded-xl p-3 border border-white/10 hover:bg-white/10 transition-colors group">
-                                    <p className="text-[10px] text-white/40 uppercase font-black tracking-widest mb-2">Gate Pass</p>
-                                    <button onClick={downloadGatepass} disabled={gatepassLoading} className="w-full inline-flex items-center justify-center gap-2 text-xs font-black bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-2 rounded-lg transition-all shadow-lg shadow-emerald-900/20 active:scale-95 disabled:opacity-50">
-                                      {gatepassLoading ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />} Download Gate Pass
-                                    </button>
-                                  </div>
+                                  <DocCard
+                                    label="POD"
+                                    filename={selectedBatch.podFilename}
+                                    onView={() => handleViewDocument(selectedBatch.podFilename)}
+                                    accentBg="bg-emerald-50" accentText="text-emerald-600" buttonClass="bg-emerald-600 hover:bg-emerald-700"
+                                  />
+                                  <DocCard label="Gate Pass" accentBg="bg-teal-50" accentText="text-teal-600" action={gatePassAction} />
                                 </>
                               );
                             })()}
@@ -1435,42 +1431,49 @@ export default function OrderDetailModal({
                             const extraDocsInAudit = (selectedBatch.documents || []).filter(d => !STANDARD_DOC_TYPES.includes(d.docType));
                             if (extraDocsInAudit.length === 0) return null;
                             return (
-                              <div className="mt-4 pt-3 border-t border-white/10">
-                                <h4 className="text-[10px] uppercase font-bold text-white/40 mb-2 flex items-center gap-1.5">
+                              <div className="px-4 pb-4">
+                                <h4 className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-2 pt-3 border-t border-slate-100 flex items-center gap-1.5">
                                   <FileText size={11} /> Additional Documents
                                 </h4>
                                 <div className="space-y-1.5">
                                   {extraDocsInAudit.map((doc, idx) => (
-                                    <div key={idx} className="flex items-center gap-2 bg-white/5 hover:bg-white/8 px-3 py-2 rounded-lg">
-                                      <FileText size={12} className="text-violet-400 flex-shrink-0" />
-                                      <span className="text-xs text-white/80 flex-1 truncate">{doc.docType}</span>
-                                      <button onClick={() => handleViewDocument(doc.filename)} className="text-[10px] text-white/50 hover:text-white px-2 py-0.5 rounded hover:bg-white/10 transition-colors flex-shrink-0">
-                                        View
-                                      </button>
-                                      {canEditOrder && !isCancelledOrder && (
-                                        <>
-                                          <label className="cursor-pointer flex-shrink-0" title="Replace document">
-                                            <RefreshCw size={13} className="text-blue-400 hover:text-blue-300 transition-colors" />
-                                            <input
-                                              type="file"
-                                              className="hidden"
-                                              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls"
-                                              onChange={e => {
-                                                const f = e.target.files[0];
-                                                if (f) handleReplaceExtraDoc(doc.filename, doc.docType, f);
-                                                e.target.value = "";
-                                              }}
-                                            />
-                                          </label>
-                                          <button
-                                            onClick={() => handleDeleteExtraDoc(doc.filename, doc.docType)}
-                                            className="flex-shrink-0"
-                                            title="Delete document"
-                                          >
-                                            <Trash2 size={13} className="text-red-400 hover:text-red-300 transition-colors" />
-                                          </button>
-                                        </>
-                                      )}
+                                    <div key={idx} className="flex items-center gap-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3.5 py-2.5 rounded-xl transition-colors">
+                                      <div className="w-7 h-7 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center shrink-0">
+                                        <FileText size={13} />
+                                      </div>
+                                      <span className="text-xs text-slate-700 font-semibold flex-1 truncate">{doc.docType}</span>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <button
+                                          onClick={() => handleViewDocument(doc.filename)}
+                                          className="text-[11px] font-bold text-indigo-600 hover:text-white hover:bg-indigo-600 px-2.5 py-1.5 rounded-lg transition-colors"
+                                        >
+                                          View
+                                        </button>
+                                        {canEditOrder && !isCancelledOrder && (
+                                          <>
+                                            <label className="cursor-pointer p-1.5 rounded-lg hover:bg-blue-100 transition-colors" title="Replace document">
+                                              <RefreshCw size={13} className="text-blue-500" />
+                                              <input
+                                                type="file"
+                                                className="hidden"
+                                                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls"
+                                                onChange={e => {
+                                                  const f = e.target.files[0];
+                                                  if (f) handleReplaceExtraDoc(doc.filename, doc.docType, f);
+                                                  e.target.value = "";
+                                                }}
+                                              />
+                                            </label>
+                                            <button
+                                              onClick={() => handleDeleteExtraDoc(doc.filename, doc.docType)}
+                                              className="p-1.5 rounded-lg hover:bg-red-100 transition-colors"
+                                              title="Delete document"
+                                            >
+                                              <Trash2 size={13} className="text-red-500" />
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
                                     </div>
                                   ))}
                                 </div>
@@ -1478,8 +1481,8 @@ export default function OrderDetailModal({
                             );
                           })()}
                           {oldDocs.length > 0 && (
-                            <div className="mt-4 pt-3 border-t border-white/10">
-                              <h4 className="text-[10px] uppercase font-bold text-white/40 mb-2">Older / Replaced Documents</h4>
+                            <div className="px-4 pb-4">
+                              <h4 className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-2 pt-3 border-t border-slate-100">Older / Replaced Documents</h4>
                               <div className="space-y-1.5">
                                 {oldDocs.map((doc, idx) => {
                                   let label = doc.docType;
@@ -1488,9 +1491,9 @@ export default function OrderDetailModal({
                                   if (label === 'ewayBill') label = "E-Way Bill";
                                   if (label === 'pod') label = "Proof of Delivery";
                                   return (
-                                    <button key={idx} onClick={() => handleViewDocument(doc.filename)} className="w-full flex items-center justify-between bg-white/5 hover:bg-white/10 text-white px-3 py-2 rounded-lg text-xs transition-colors">
-                                      <span className="flex items-center gap-2"><FileText size={12} className="text-white/40" /> {`[Old] ${label}`}</span>
-                                      <span className="text-[10px] text-white/40">View</span>
+                                    <button key={idx} onClick={() => handleViewDocument(doc.filename)} className="w-full flex items-center justify-between bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-500 px-3 py-2 rounded-lg text-xs transition-colors">
+                                      <span className="flex items-center gap-2"><FileText size={12} className="text-slate-300" /> {`[Old] ${label}`}</span>
+                                      <span className="text-[10px] text-slate-400 font-bold">View</span>
                                     </button>
                                   );
                                 })}
@@ -1984,7 +1987,7 @@ export default function OrderDetailModal({
                                         { label: "Last Delivery", value: safeFormatDate(selectedBatch.lastDeliveryDate) || "—" },
                                         { label: "Warranty", value: selectedBatch.warranty || "N/A" },
                                         ...(selectedBatch.warrantyStartDate ? [{ label: "Warranty Start Date", value: safeFormatDate(selectedBatch.warrantyStartDate) }] : []),
-                                        ...((currentUser?.role === "Admin" || currentUser?.role === "SuperAdmin") ? [
+                                        ...(currentUser?.role === "Admin" ? [
                                           { label: "Dispatched By", value: selectedBatch.dispatchedBy || "Unknown" },
                                           ...(isCancelledOrder ? [{ label: "Cancelled By", value: selectedBatch.cancelledBy || "Unknown" }] : [])
                                         ] : [])
@@ -1994,6 +1997,7 @@ export default function OrderDetailModal({
                                           <p className={`text-xs font-semibold text-slate-800 break-words ${item.break ? "whitespace-pre-wrap" : ""} ${item.mono ? "font-mono" : ""}`}>{item.value}</p>
                                         </div>
                                       ))}
+                                      <PincodeCheckWidget address={selectedBatch.shippingAddress || selectedBatch.buyerAddress} />
                                     </div>
                                     {(() => {
                                       if (!selectedBatch.warrantyStartDate || !selectedBatch.invoiceDate) return null;
@@ -2192,7 +2196,6 @@ export default function OrderDetailModal({
                                 "Acceptance Certificate",
                                 "CAMC Agreement",
                                 "Purchase Order Copy",
-                                "Delivery Challan",
                                 "Warranty Certificate",
                                 "Test / QC Report",
                                 "Performance Bank Guarantee",

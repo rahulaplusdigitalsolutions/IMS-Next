@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, authorizeDispatchRequest, ApiError } from "@/lib/auth";
+import { authenticateRequest, authorizeDispatchRequest, requireCompany, ApiError } from "@/lib/auth";
 import { safeStr, safeDate, normalizeBusinessStatus, normalizeLogisticsStatus, toBit } from "@/lib/helpers";
 import { createDispatchInline } from "@/lib/dispatchHelpers";
 import { createNotification } from "@/lib/notifications";
@@ -9,6 +9,7 @@ import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 export const POST = withErrorHandling(async (request) => {
   const body = await parseJsonBody(request);
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeDispatchRequest(user, "POST", body);
 
   const { items } = body;
@@ -17,8 +18,8 @@ export const POST = withErrorHandling(async (request) => {
     const firstCustomer = safeStr(items[0]?.customerName || items[0]?.customer, "");
     if (firstCustomer && firstCustomer.toLowerCase() !== "n/a") {
       const [existing] = await connection.query(
-        "SELECT guid FROM orders WHERE (orderid = ? OR customerName = ?) AND isDeleted = 0 LIMIT 1",
-        [firstCustomer, firstCustomer]
+        "SELECT guid FROM orders WHERE (orderid = ? OR customerName = ?) AND isDeleted = 0 AND companyGuid = ? LIMIT 1",
+        [firstCustomer, firstCustomer, user.companyId]
       );
       if (existing.length > 0) {
         return NextResponse.json({ message: `Order ID "${firstCustomer}" already exists in the system.` }, { status: 400 });
@@ -31,8 +32,8 @@ export const POST = withErrorHandling(async (request) => {
       const [serialCheck] = await connection.query(
         "SELECT s.status, s.value AS serialValue, m.packagingCost AS modelDefaultCost" +
         " FROM serials s JOIN models m ON s.modelGuid COLLATE utf8mb4_unicode_ci = m.guid COLLATE utf8mb4_unicode_ci" +
-        " WHERE s.guid = ?",
-        [item.serialId]
+        " WHERE s.guid = ? AND s.companyGuid = ?",
+        [item.serialId, user.companyId]
       );
 
       if (serialCheck.length === 0) {
@@ -51,6 +52,7 @@ export const POST = withErrorHandling(async (request) => {
       const installStatusBit = toBit(item.installationRequired) ? (item.installationStatus || "Pending") : null;
 
       const result = await createDispatchInline(connection, {
+        companyGuid: user.companyId,
         serialId: item.serialId,
         firmName: item.firmName,
         customerName: safeStr(item.customerName || item.customer, ""),
@@ -94,8 +96,8 @@ export const POST = withErrorHandling(async (request) => {
       if (item.warrantyStartDate !== undefined) { updateQ += "warrantyStartDate = ?, "; updateParams.push(safeDate(item.warrantyStartDate) || null); }
       if (item.invoiceFilename) { updateQ += "invoiceFilename = ?, "; updateParams.push(item.invoiceFilename); }
       if (updateParams.length > 0) {
-        updateQ = updateQ.slice(0, -2) + " WHERE guid = ?";
-        updateParams.push(itemOrderId);
+        updateQ = updateQ.slice(0, -2) + " WHERE guid = ? AND companyGuid = ?";
+        updateParams.push(itemOrderId, user.companyId);
         await connection.query(updateQ, updateParams);
       }
     }
@@ -107,6 +109,7 @@ export const POST = withErrorHandling(async (request) => {
         message: `${items.length} new dispatch orders have been created.`,
         type: "success",
         link: "/dispatch",
+        companyGuid: user.companyId,
       });
     } catch (notifErr) {
       console.error("Error sending bulk order notification:", notifErr);

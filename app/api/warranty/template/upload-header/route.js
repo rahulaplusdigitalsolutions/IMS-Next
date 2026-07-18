@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import AdmZip from "adm-zip";
 import mammoth from "mammoth";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, ApiError } from "@/lib/auth";
+import { authenticateRequest, requireCompany, ApiError } from "@/lib/auth";
 import { authorizeWarranty } from "@/lib/warrantyAuth";
 import { uploadDir, saveUploadedFile } from "@/lib/upload";
 import { logUserActivity } from "@/lib/helpers";
@@ -17,7 +17,11 @@ import { withErrorHandling } from "@/lib/apiResponse";
 //          .pdf files  → renders first page to PNG via Puppeteer
 export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeWarranty(user, "POST");
+
+  const [existingTpl] = await mysqlPool.query("SELECT id FROM warranty_template WHERE companyGuid=? LIMIT 1", [user.companyId]);
+  if (existingTpl.length === 0) await mysqlPool.query("INSERT INTO warranty_template (companyGuid) VALUES (?)", [user.companyId]);
 
   const formData = await request.formData();
   const file = formData.get("file");
@@ -106,14 +110,14 @@ export const POST = withErrorHandling(async (request) => {
       throw new ApiError(400, "Word file produced empty content. Please ensure your header content is designed within the main body or the header section of the document.");
     }
 
-    await mysqlPool.query("UPDATE warranty_template SET headerHtml=?, headerImagePath=NULL WHERE id=1", [headerHtml]);
+    await mysqlPool.query("UPDATE warranty_template SET headerHtml=?, headerImagePath=NULL WHERE companyGuid=?", [headerHtml, user.companyId]);
     fs.unlink(filePath, () => {});
     await logUserActivity(mysqlPool, user, "Upload Warranty Header (DOCX)", [], ip);
     return NextResponse.json({ message: "Word header uploaded", type: "docx", headerHtml });
   } else if (ext === ".html" || ext === ".htm") {
     let headerHtml = fs.readFileSync(filePath, "utf8");
     headerHtml = cleanHeaderHtml(headerHtml);
-    await mysqlPool.query("UPDATE warranty_template SET headerHtml=?, headerImagePath=NULL WHERE id=1", [headerHtml || ""]);
+    await mysqlPool.query("UPDATE warranty_template SET headerHtml=?, headerImagePath=NULL WHERE companyGuid=?", [headerHtml || "", user.companyId]);
     fs.unlink(filePath, () => {});
     await logUserActivity(mysqlPool, user, "Upload Warranty Header (HTML)", [], ip);
     return NextResponse.json({ message: "HTML header uploaded", type: "html", headerHtml });
@@ -127,7 +131,7 @@ export const POST = withErrorHandling(async (request) => {
 
       fs.unlink(filePath, () => {});
 
-      await mysqlPool.query("UPDATE warranty_template SET headerImagePath=?, headerHtml=NULL WHERE id=1", [pngFilename]);
+      await mysqlPool.query("UPDATE warranty_template SET headerImagePath=?, headerHtml=NULL WHERE companyGuid=?", [pngFilename, user.companyId]);
       await logUserActivity(mysqlPool, user, "Upload Warranty Header (PDF)", [], ip);
       return NextResponse.json({ message: "PDF header uploaded and converted", type: "image", filePath: pngFilename, previewUrl: `${backendBase}/uploads/${pngFilename}` });
     } catch (pdfErr) {
@@ -137,7 +141,7 @@ export const POST = withErrorHandling(async (request) => {
     }
   } else {
     const filename = saved.filename;
-    await mysqlPool.query("UPDATE warranty_template SET headerImagePath=?, headerHtml=NULL WHERE id=1", [filename]);
+    await mysqlPool.query("UPDATE warranty_template SET headerImagePath=?, headerHtml=NULL WHERE companyGuid=?", [filename, user.companyId]);
     await logUserActivity(mysqlPool, user, "Upload Warranty Header (Image)", [], ip);
     return NextResponse.json({ message: "Header image uploaded", type: "image", filePath: filename, previewUrl: `${backendBase}/uploads/${filename}` });
   }

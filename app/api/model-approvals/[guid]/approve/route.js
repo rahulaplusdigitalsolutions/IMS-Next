@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth, ApiError } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany, ApiError } from "@/lib/auth";
 import { createNotification } from "@/lib/notifications";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
 export const PUT = withErrorHandling(async (request, { params }) => {
   const user = await authenticateRequest(request);
   requireAuth(user);
+  requireCompany(user);
   const { guid } = await params;
 
   const [rows] = await mysqlPool.query("SELECT * FROM model_approval_requests WHERE guid=? AND isDeleted=0", [guid]);
@@ -15,7 +16,7 @@ export const PUT = withErrorHandling(async (request, { params }) => {
   const r = rows[0];
   if (r.status !== "pending") throw new ApiError(400, "This request is not pending.");
 
-  const [existing] = await mysqlPool.query("SELECT guid FROM models WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND isDeleted=0", [r.name]);
+  const [existing] = await mysqlPool.query("SELECT guid FROM models WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND isDeleted=0 AND companyGuid=?", [r.name, user.companyId]);
   if (existing.length > 0) throw new ApiError(400, "A model with this name already exists.");
 
   const body = (await parseJsonBody(request)) || {};
@@ -39,9 +40,9 @@ export const PUT = withErrorHandling(async (request, { params }) => {
   const newModelGuid = uuidv4();
 
   await mysqlPool.query(
-    "INSERT INTO models (guid,name,company,category,colorType,printerType,description,mrp,isSerialized,stockQuantity,packagingCost,mainCategory,cpu,ram,`ssd/hdd`,barcode,screenSize,resolution,panelType,refreshRate,isDeleted) VALUES (?,?,?,?,?,?,?,?,1,0,0,?,?,?,?,?,?,?,?,?,0)",
+    "INSERT INTO models (guid,companyGuid,name,company,category,colorType,printerType,description,mrp,isSerialized,stockQuantity,packagingCost,mainCategory,cpu,ram,`ssd/hdd`,barcode,screenSize,resolution,panelType,refreshRate,isDeleted) VALUES (?,?,?,?,?,?,?,?,?,1,0,0,?,?,?,?,?,?,?,?,?,0)",
     [
-      newModelGuid,
+      newModelGuid, user.companyId,
       finalName, finalCompany, finalCategory,
       finalColorType, finalPrinterType,
       finalDesc, finalMrp,
@@ -54,15 +55,15 @@ export const PUT = withErrorHandling(async (request, { params }) => {
 
   if (r.serialNumber && r.serialNumber.trim()) {
     await mysqlPool.query(
-      "INSERT INTO serials (guid, modelGuid, godownGuid, value, landingPrice, landingPriceReason, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, 'Available', 0, NOW())",
-      [newModelGuid, r.godownGuid || null, r.serialNumber.trim(), r.landingPrice || 0, r.landingPriceReason || null]
+      "INSERT INTO serials (guid, companyGuid, modelGuid, godownGuid, value, landingPrice, landingPriceReason, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, ?, 'Available', 0, NOW())",
+      [user.companyId, newModelGuid, r.godownGuid || null, r.serialNumber.trim(), r.landingPrice || 0, r.landingPriceReason || null]
     );
   }
 
   if (r.variantId) {
     await mysqlPool.query(
-      "UPDATE serials SET modelGuid = ? WHERE modelGuid = ? AND status = 'Available' AND isDeleted = 0",
-      [newModelGuid, r.variantId]
+      "UPDATE serials SET modelGuid = ? WHERE modelGuid = ? AND status = 'Available' AND isDeleted = 0 AND companyGuid = ?",
+      [newModelGuid, r.variantId, user.companyId]
     );
   }
 
@@ -80,6 +81,7 @@ export const PUT = withErrorHandling(async (request, { params }) => {
       type: "success",
       priority: "low",
       link: "/models",
+      companyGuid: user.companyId,
     });
   }
 

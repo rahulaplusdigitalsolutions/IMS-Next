@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { ApiError } from "@/lib/auth";
+import { ApiError, hasAllCompaniesAccess } from "@/lib/auth";
 import { sanitizeUser, safeStr, verifyPassword, hashPassword, signToken, logUserActivity } from "@/lib/helpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
@@ -18,20 +18,66 @@ export const POST = withErrorHandling(async (request) => {
   const { ok, legacy } = await verifyPassword(password, user.password);
   if (!ok) throw new ApiError(401, "Invalid credentials");
 
+  // Admin (and allCompaniesAccess-flagged users) see every active company,
+  // present and future, without needing a row per company in user_companies.
+  const [userCompanies] = hasAllCompaniesAccess(user)
+    ? await mysqlPool.query(`SELECT guid, name, allowedPlatforms FROM companies WHERE isActive = 1`)
+    : await mysqlPool.query(
+        `SELECT c.guid, c.name, c.allowedPlatforms
+         FROM user_companies uc
+         JOIN companies c ON uc.companyGuid = c.guid
+         WHERE uc.userGuid = ? AND c.isActive = 1`,
+        [user.userid]
+      );
+
+  if (userCompanies.length === 0) {
+    throw new ApiError(403, "You do not have access to any active companies.");
+  }
+
   if (legacy) {
     const newHash = await hashPassword(password);
     await mysqlPool.query("UPDATE users SET password=? WHERE userid=?", [newHash, user.userid]);
   }
 
-  const token = signToken(user);
   await mysqlPool.query("UPDATE users SET forceLogoutAt = NULL WHERE userid = ?", [user.userid]);
+
+  if (userCompanies.length === 1) {
+    user.companyId = userCompanies[0].guid;
+    const token = signToken(user);
+    
+    await logUserActivity(
+      mysqlPool,
+      { id: user.userid, username: user.username, role: user.role },
+      "Login",
+      [{ field: "session", newValue: "Started", companyGuid: user.companyId }],
+      request.headers.get("x-forwarded-for") || null
+    );
+    
+    const sanitized = sanitizeUser(user);
+    sanitized.companyId = user.companyId;
+    return NextResponse.json({ token, user: sanitized, companies: userCompanies });
+  }
+
+  // Multiple companies: issue a token scoped to the default (or first) company so the
+  // user is fully logged in immediately; the frontend still shows a picker/switcher,
+  // and switching later goes through /api/auth/switch-company as normal.
+  const [defaultRow] = await mysqlPool.query(
+    "SELECT companyGuid FROM user_companies WHERE userGuid = ? AND isDefault = 1 LIMIT 1",
+    [user.userid]
+  );
+  const chosenCompanyGuid = defaultRow[0]?.companyGuid || userCompanies[0].guid;
+  user.companyId = chosenCompanyGuid;
+  const token = signToken(user);
+
   await logUserActivity(
     mysqlPool,
     { id: user.userid, username: user.username, role: user.role },
     "Login",
-    [{ field: "session", newValue: "Started" }],
+    [{ field: "session", newValue: "Started", companyGuid: user.companyId }],
     request.headers.get("x-forwarded-for") || null
   );
 
-  return NextResponse.json({ token, user: sanitizeUser(user) });
+  const sanitized = sanitizeUser(user);
+  sanitized.companyId = user.companyId;
+  return NextResponse.json({ token, user: sanitized, companies: userCompanies });
 });

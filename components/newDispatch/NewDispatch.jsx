@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import Swal from "sweetalert2";
 import { printerService } from "@/lib/services/api";
+import { inventoryService } from "@/lib/services/inventoryService";
 import {
   ArrowLeft, Package, Truck, ScanLine, Hash,
   Trash2, CheckCircle, AlertCircle, Sparkles,
@@ -16,6 +17,7 @@ import {
 import MasterDropdown from "@/components/common/MasterDropdown";
 import SearchableSelect from "../common/SearchableSelect";
 import SidePanel from "./SidePanel";
+import { useCompany } from "@/lib/client/CompanyContext";
 
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
@@ -38,6 +40,11 @@ export default function NewDispatch({
   onBack,
 }) {
   const [activeTab, setActiveTab] = useState("single");
+  const [itemType, setItemType] = useState("serialized"); // "serialized" | "nonSerialized"
+  const [nonSerializedItemVariantId, setNonSerializedItemVariantId] = useState("");
+  const [nonSerializedQty, setNonSerializedQty] = useState(1);
+  const [itemMasterVariants, setItemMasterVariants] = useState([]);
+  const [loadingItemMaster, setLoadingItemMaster] = useState(false);
   const [batchList, setBatchList] = useState([]);
   const inputRef = useRef(null);
   const debounceRef = useRef(null);
@@ -58,10 +65,6 @@ export default function NewDispatch({
   const [serialReturnWarning, setSerialReturnWarning] = useState("");
 
   const [lastDateManuallySet, setLastDateManuallySet] = useState(false);
-
-  // AI contract auto-fill status
-  const [aiParsing, setAiParsing] = useState(false);
-  const [aiParseMsg, setAiParseMsg] = useState("");
 
   const getInitialDate = (daysToAdd = 0) => {
     const d = new Date();
@@ -180,12 +183,17 @@ export default function NewDispatch({
     }
   }, [form.platform]);
 
-  const platforms = [
+  const { activeCompany } = useCompany();
+  const allowed = activeCompany?.allowedPlatforms;
+  
+  const allPlatforms = [
     { value: "Amazon", icon: "🛒", color: "from-amber-400 to-orange-500", bg: "bg-amber-50", border: "border-amber-300", text: "text-amber-700" },
     { value: "Flipkart", icon: "📦", color: "from-blue-400 to-blue-600", bg: "bg-blue-50", border: "border-blue-300", text: "text-blue-700" },
     { value: "GeM", icon: "🏛️", color: "from-emerald-400 to-emerald-600", bg: "bg-emerald-50", border: "border-emerald-300", text: "text-emerald-700" },
     { value: "Other", icon: "🔗", color: "from-violet-400 to-purple-600", bg: "bg-violet-50", border: "border-violet-300", text: "text-violet-700" },
-  ]; // Add trailing comma here
+  ];
+  
+  const platforms = allowed ? allPlatforms.filter(p => allowed.includes(p.value)) : allPlatforms;
 
   const getCompanyName = (model) => {
     if (!model) return "Unknown";
@@ -214,6 +222,22 @@ export default function NewDispatch({
     if (!selectedCompany) return [];
     return models.filter((m) => getCompanyName(m) === selectedCompany);
   }, [models, selectedCompany]);
+
+  // Non-serialized order flow — items picked from Item Master (inventoryitemvariant),
+  // the same catalog Stationery stock-out uses, not the printer Models catalog.
+  useEffect(() => {
+    if (itemType !== "nonSerialized" || itemMasterVariants.length > 0) return;
+    setLoadingItemMaster(true);
+    inventoryService.getCurrentStock({ limit: 1000 })
+      .then((res) => setItemMasterVariants(Array.isArray(res?.data) ? res.data : []))
+      .catch((err) => console.error("Failed to load Item Master:", err.message))
+      .finally(() => setLoadingItemMaster(false));
+  }, [itemType, itemMasterVariants.length]);
+
+  const selectedItemMasterVariant = useMemo(
+    () => itemMasterVariants.find((v) => String(v.itemVariantId) === String(nonSerializedItemVariantId)),
+    [itemMasterVariants, nonSerializedItemVariantId]
+  );
 
   useEffect(() => {
     if (!selectedCompany) {
@@ -409,69 +433,9 @@ export default function NewDispatch({
   };
 
 
-  // Fields the AI contract-parser is allowed to fill. Parsing runs ONCE at
-  // upload time and only sets non-empty values — every field stays a normal
-  // editable input afterwards, so anything the user types later always sticks.
-  const AI_FILL_FIELDS = [
-    "platform", "orderId", "gemOrderType", "gemBidNo", "gemOrderDate", "gemLastDate",
-    "gemAddress", "gemBuyerAddress", "consigneeName", "gemGst", "gemContact",
-    "gemAltContact", "gemBuyerEmail", "gemConsigneeEmail", "paymentAuthorityEmail",
-    "invoiceNo", "invoiceDate", "invoiceGst", "warranty", "sellingPrice", "quantity"
-  ];
-
-  const handleFileChange = async (e) => {
+  const handleFileChange = (e) => {
     const file = e.target.files[0] || null;
     setForm((prev) => ({ ...prev, gemContractFile: file }));
-    if (!file) return;
-
-    const isParseable = file.type === "application/pdf" || file.type.startsWith("image/");
-    if (!isParseable) return;
-
-    setAiParsing(true);
-    setAiParseMsg("");
-    try {
-      const fileBase64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(",")[1]);
-        reader.onerror = () => reject(new Error("Could not read file"));
-        reader.readAsDataURL(file);
-      });
-
-      const res = await axios.post(
-        `${API_BASE_URL}/api/ai/parse-file`,
-        { fileBase64, mimeType: file.type },
-        getAuthHeaders()
-      );
-
-      const data = res.data || {};
-      let filledCount = 0;
-      setForm((prev) => {
-        const next = { ...prev };
-        for (const key of AI_FILL_FIELDS) {
-          const val = data[key];
-          if (val === null || val === undefined || String(val).trim() === "") continue;
-          // Never silently switch the platform the user already picked — a
-          // misdetected/different platform in the doc shouldn't yank them
-          // into a different form section mid-fill.
-          if (key === "platform" && prev.platform) continue;
-          next[key] = val;
-          filledCount++;
-        }
-        return next;
-      });
-
-      // AI supplied a delivery date — mark it "manually set" so the
-      // order-date auto-fill (+15 days) never overwrites it afterwards.
-      if (data.gemLastDate) setLastDateManuallySet(true);
-
-      setAiParseMsg(filledCount > 0
-        ? `✓ ${filledCount} field(s) auto-filled from contract — review & edit as needed`
-        : "No matching fields found in this document");
-    } catch (err) {
-      setAiParseMsg(err.response?.data?.message || "AI auto-fill failed — fill fields manually");
-    } finally {
-      setAiParsing(false);
-    }
   };
 
   const handleInvoiceFileChange = (e) => {
@@ -665,7 +629,28 @@ export default function NewDispatch({
 
       let createdDispatch = null;
 
-      if (activeTab === "single") {
+      if (itemType === "nonSerialized") {
+        if (!nonSerializedItemVariantId) {
+          setError("Please select an item from Item Master.");
+          return;
+        }
+        if (!nonSerializedQty || Number(nonSerializedQty) <= 0) {
+          setError("Please enter a valid quantity.");
+          return;
+        }
+        if (!form.sellingPrice || Number(form.sellingPrice) <= 0) {
+          setError("Please enter a valid selling price.");
+          return;
+        }
+
+        setIsSubmitting(true);
+        createdDispatch = await printerService.addDispatch({
+          ...buildPayload(null, Number(form.sellingPrice)),
+          itemVariantId: nonSerializedItemVariantId,
+          quantity: Number(nonSerializedQty),
+          nonSerialized: true,
+        });
+      } else if (activeTab === "single") {
         if (!form.serialId) {
           setError("Please scan or enter a valid serial number.");
           return;
@@ -915,6 +900,37 @@ export default function NewDispatch({
                     </div>
                   </div>
 
+                  {/* Item Type — Serialized vs Non-Serialized (GeM / Other) */}
+                  {(form.platform === "GeM" || form.platform === "Other") && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-700">Item Type</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setItemType("serialized")}
+                          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border-2 transition-all text-sm font-semibold ${
+                            itemType === "serialized"
+                              ? "border-indigo-400 bg-indigo-50 text-indigo-700 shadow-sm"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                          }`}
+                        >
+                          <ScanLine size={14} /> Serialized
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setItemType("nonSerialized")}
+                          className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border-2 transition-all text-sm font-semibold ${
+                            itemType === "nonSerialized"
+                              ? "border-amber-400 bg-amber-50 text-amber-700 shadow-sm"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                          }`}
+                        >
+                          <Box size={14} /> Non-Serialized
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Order ID */}
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">Order ID <span className="text-red-500">*</span></label>
@@ -954,33 +970,19 @@ export default function NewDispatch({
                     </div>
                   </div>
 
-                  {/* Contract Upload — platform-agnostic so it never disappears if AI auto-fill changes the platform */}
+                  {/* Contract Upload — plain file attach, no AI extraction here */}
                   {showOrderStatus && (
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest flex items-center gap-1">
                         <UploadCloud size={10} className="text-slate-400" /> Contract File
-                        <span className="normal-case font-semibold text-emerald-600 flex items-center gap-0.5">
-                          <Sparkles size={9} /> AI auto-fill
-                        </span>
                       </label>
                       <div className="relative">
                         <input
                           type="file"
                           onChange={handleFileChange}
-                          disabled={aiParsing}
-                          className="w-full border border-dashed border-slate-300 p-3 rounded-xl text-sm bg-white hover:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 outline-none transition-all file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200 disabled:opacity-60"
+                          className="w-full border border-dashed border-slate-300 p-3 rounded-xl text-sm bg-white hover:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 outline-none transition-all file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200"
                         />
                       </div>
-                      {aiParsing && (
-                        <p className="text-[11px] font-semibold text-indigo-600 flex items-center gap-1.5 animate-pulse">
-                          <Sparkles size={11} /> Reading contract & filling fields...
-                        </p>
-                      )}
-                      {!aiParsing && aiParseMsg && (
-                        <p className={`text-[11px] font-semibold ${aiParseMsg.startsWith("✓") ? "text-emerald-600" : "text-amber-600"}`}>
-                          {aiParseMsg}
-                        </p>
-                      )}
                     </div>
                   )}
 
@@ -1669,6 +1671,7 @@ export default function NewDispatch({
                   )}
 
                   {/* ═══ PRICING & QUANTITY SECTION ═══ */}
+                  {itemType === "serialized" && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6">
                     <div className="flex items-center gap-3 mb-6">
                       <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center shadow-sm">
@@ -1776,11 +1779,80 @@ export default function NewDispatch({
                       </div>
                     </div>
                   </div>
+                  )}
                 </div>
               )}
 
+                {/* ═══ Non-Serialized Item Section ═══ */}
+                {itemType === "nonSerialized" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                      <div className="p-1.5 bg-amber-100 rounded-lg">
+                        <Box size={13} className="text-amber-600" />
+                      </div>
+                      <h3 className="text-xs font-extrabold text-slate-700 uppercase tracking-wide">Non-Serialized Item</h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">Item (Item Master) <span className="text-red-500">*</span></label>
+                        <select
+                          className="w-full border border-slate-200 p-3 rounded-xl text-sm bg-white focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 outline-none"
+                          value={nonSerializedItemVariantId}
+                          onChange={(e) => setNonSerializedItemVariantId(e.target.value)}
+                          disabled={loadingItemMaster}
+                        >
+                          <option value="">{loadingItemMaster ? "Loading items..." : "Select item"}</option>
+                          {itemMasterVariants.map((v) => (
+                            <option key={v.itemVariantId} value={v.itemVariantId}>
+                              {v.itemName} — {v.variantName} (Stock: {v.availablePCS ?? 0})
+                            </option>
+                          ))}
+                        </select>
+                        {!loadingItemMaster && itemMasterVariants.length === 0 && (
+                          <p className="text-xs text-amber-600">No items found in Item Master — add one under Item Master first.</p>
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium text-slate-700">Quantity <span className="text-red-500">*</span></label>
+                        <input
+                          type="number"
+                          min="1"
+                          max={selectedItemMasterVariant?.availablePCS ?? undefined}
+                          className="w-full border border-slate-200 p-3 rounded-xl text-sm focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 outline-none"
+                          value={nonSerializedQty}
+                          onChange={(e) => setNonSerializedQty(e.target.value)}
+                        />
+                        {selectedItemMasterVariant && (
+                          <p className="text-xs text-slate-400">Available stock: {selectedItemMasterVariant.availablePCS ?? 0}</p>
+                        )}
+                      </div>
+                      <div className="space-y-1.5 md:col-span-2">
+                        <label className="text-sm font-medium text-slate-700">Unit Selling Price <span className="text-red-500">*</span></label>
+                        <div className="relative">
+                          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-600 font-bold text-lg">₹</span>
+                          <input
+                            type="number"
+                            className="w-full border border-slate-200 pl-9 p-3 rounded-xl text-sm focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 outline-none"
+                            placeholder="0.00"
+                            value={form.sellingPrice}
+                            onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* ═══ Section 2: Scan Inventory ═══ */}
-                <div className="space-y-3">
+                <div className={`relative space-y-3 ${itemType === "nonSerialized" ? "opacity-50 pointer-events-none select-none" : ""}`}>
+                  {itemType === "nonSerialized" && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/40 rounded-2xl">
+                      <span className="flex items-center gap-1.5 bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+                        <Box size={12} /> Not used for Non-Serialized items
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                     <div className="flex items-center gap-2">
                       <div className="p-1.5 bg-purple-100 rounded-lg">
@@ -1988,7 +2060,7 @@ export default function NewDispatch({
                 </div>
 
                 {/* ═══ Section 3: Batch Pricing ═══ */}
-                {activeTab === "multiple" && batchList.length > 0 && (
+                {itemType === "serialized" && activeTab === "multiple" && batchList.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
                       <div className="p-1.5 bg-amber-100 rounded-lg">
@@ -2082,14 +2154,18 @@ export default function NewDispatch({
                     disabled={
                       isSubmitting ||
                       !canManage ||
-                      (activeTab === "single" && !form.serialId) ||
-                      (activeTab === "multiple" && batchList.length === 0)
+                      (itemType === "nonSerialized"
+                        ? (!nonSerializedItemVariantId || !nonSerializedQty || Number(nonSerializedQty) <= 0 || !form.sellingPrice)
+                        : (activeTab === "single" && !form.serialId) ||
+                          (activeTab === "multiple" && batchList.length === 0))
                     }
                     className={`w-full py-4.5 rounded-2xl text-base font-extrabold flex items-center justify-center gap-3 transition-all duration-300 ${
                       isSubmitting ||
                       !canManage ||
-                      (activeTab === "single" && !form.serialId) ||
-                      (activeTab === "multiple" && batchList.length === 0)
+                      (itemType === "nonSerialized"
+                        ? (!nonSerializedItemVariantId || !nonSerializedQty || Number(nonSerializedQty) <= 0 || !form.sellingPrice)
+                        : (activeTab === "single" && !form.serialId) ||
+                          (activeTab === "multiple" && batchList.length === 0))
                         ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
                         : "bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:via-indigo-700 hover:to-purple-700 shadow-xl shadow-indigo-500/25 hover:shadow-2xl hover:shadow-indigo-500/35 hover:-translate-y-0.5 active:translate-y-0 active:shadow-lg"
                     }`}
@@ -2103,9 +2179,11 @@ export default function NewDispatch({
                       <>
                         <Sparkles size={20} className="animate-pulse" />
                         <span>
-                          {activeTab === "single"
-                            ? `Confirm Shipment ${form.sellingPrice ? `• ₹${Number(form.sellingPrice).toLocaleString("en-IN")}` : ""}`
-                            : `Confirm Bulk Order • ₹${batchTotalValue.toLocaleString("en-IN")}`}
+                          {itemType === "nonSerialized"
+                            ? `Confirm Order ${form.sellingPrice ? `• ₹${(Number(form.sellingPrice) * Number(nonSerializedQty || 1)).toLocaleString("en-IN")}` : ""}`
+                            : activeTab === "single"
+                              ? `Confirm Shipment ${form.sellingPrice ? `• ₹${Number(form.sellingPrice).toLocaleString("en-IN")}` : ""}`
+                              : `Confirm Bulk Order • ₹${batchTotalValue.toLocaleString("en-IN")}`}
                         </span>
                       </>
                     )}
@@ -2116,14 +2194,23 @@ export default function NewDispatch({
           </div>
 
           {/* ═══ RIGHT STATIC PANEL ═══ */}
-          <SidePanel
-            {...{
-              activeTab, batchList, companyOptions, filteredModelsByCompany,
-              getCompanyName, getSerialValue, models, processSerial, selectedCompany,
-              selectedModelId, selectedPanelSerials, setForm, setSelectedCompany,
-              setSelectedModelId,
-            }}
-          />
+          <div className={`relative ${itemType === "nonSerialized" ? "opacity-50 pointer-events-none select-none" : ""}`}>
+            {itemType === "nonSerialized" && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/40 rounded-2xl">
+                <span className="flex items-center gap-1.5 bg-slate-800 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+                  <Box size={12} /> Not used for Non-Serialized items
+                </span>
+              </div>
+            )}
+            <SidePanel
+              {...{
+                activeTab, batchList, companyOptions, filteredModelsByCompany,
+                getCompanyName, getSerialValue, models, processSerial, selectedCompany,
+                selectedModelId, selectedPanelSerials, setForm, setSelectedCompany,
+                setSelectedModelId,
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>

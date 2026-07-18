@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth, ApiError } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany, ApiError } from "@/lib/auth";
 import { authorizeInventory } from "@/lib/inventoryAuth";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
@@ -10,6 +10,7 @@ export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   authorizeInventory(user, "POST");
   requireAuth(user);
+  requireCompany(user);
 
   const {
     VendorId, VendorName, VendorFirmName, VendorGstin, VendorMobile, VendorAlternateMobile,
@@ -28,27 +29,27 @@ export const POST = withErrorHandling(async (request) => {
           vendorPincode = ?, vendorBankName = ?, vendorBankAccountName = ?,
           vendorBankAccountNumber = ?, vendorBankIFSC = ?,
           vendorDealingCategories = ?, vendorDealingItems = ?
-        WHERE vendorId = ?`,
+        WHERE vendorId = ? AND companyGuid = ?`,
         [
           VendorName || "", VendorFirmName || "", VendorGstin || "", VendorMobile || "",
           VendorAlternateMobile || "", VendorEmail || "", VendorAddress || "", VendorState || "",
           VendorPincode || "", VendorBankName || "", VendorBankAccountName || "",
           VendorBankAccountNumber || "", VendorBankIfsc || "",
-          catsStr || "", VendorDealingItems || "", VendorId,
+          catsStr || "", VendorDealingItems || "", VendorId, user.companyId,
         ]
       );
     } else {
       const id = uuidv4();
       await mysqlPool.execute(
         `INSERT INTO inventoryvendor (
-          vendorId, vendorName, vendorFirmName, vendorGSTIN, vendorMobile,
+          vendorId, companyGuid, vendorName, vendorFirmName, vendorGSTIN, vendorMobile,
           vendorAlternateMobile, vendorEmail, vendorAddress, vendorState,
           vendorPincode, vendorBankName, vendorBankAccountName,
           vendorBankAccountNumber, vendorBankIFSC,
           vendorDealingCategories, vendorDealingItems, isDeleted
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 0)`,
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 0)`,
         [
-          id, VendorName || "", VendorFirmName || "", VendorGstin || "", VendorMobile || "",
+          id, user.companyId, VendorName || "", VendorFirmName || "", VendorGstin || "", VendorMobile || "",
           VendorAlternateMobile || "", VendorEmail || "", VendorAddress || "", VendorState || "",
           VendorPincode || "", VendorBankName || "", VendorBankAccountName || "",
           VendorBankAccountNumber || "", VendorBankIfsc || "",

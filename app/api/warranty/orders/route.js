@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest } from "@/lib/auth";
+import { authenticateRequest, requireCompany } from "@/lib/auth";
 import { authorizeWarranty } from "@/lib/warrantyAuth";
 import { withErrorHandling } from "@/lib/apiResponse";
 
 // GEM orders for cert generation
 export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeWarranty(user, "GET");
 
   const [rows] = await mysqlPool.query(`
@@ -34,12 +35,12 @@ export const GET = withErrorHandling(async (request) => {
       m.name          AS modelName,
       m.company       AS companyName
     FROM orders o
-    LEFT JOIN order_items oi ON oi.orderGuid = o.guid
-    LEFT JOIN serials s      ON oi.serialNumberGuid = s.guid
-    LEFT JOIN models m       ON s.modelGuid = m.guid
-    WHERE o.isDeleted = 0
+    LEFT JOIN order_items oi ON oi.orderGuid = o.guid AND oi.companyGuid = o.companyGuid
+    LEFT JOIN serials s      ON oi.serialNumberGuid = s.guid AND s.companyGuid = o.companyGuid
+    LEFT JOIN models m       ON s.modelGuid = m.guid AND m.companyGuid = o.companyGuid
+    WHERE o.isDeleted = 0 AND o.companyGuid = ?
     ORDER BY o.dispatchDate DESC, o.orderDate DESC
-  `);
+  `, [user.companyId]);
 
   const seen = new Set();
   const unique = [];

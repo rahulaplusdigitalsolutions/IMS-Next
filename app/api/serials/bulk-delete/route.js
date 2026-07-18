@@ -3,6 +3,7 @@ import { mysqlPool } from "@/lib/db";
 import { authenticateRequest } from "@/lib/auth";
 import { authorizeSerials } from "@/lib/serialsAuth";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
+import { broadcastRealtimeEvent } from "@/lib/realtimeEvents";
 
 export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
@@ -11,5 +12,6 @@ export const POST = withErrorHandling(async (request) => {
   const body = await parseJsonBody(request);
   const ids = Array.isArray(body.ids) ? body.ids : [body.ids];
   if (ids.length > 0) await mysqlPool.query("UPDATE serials SET isDeleted=1 WHERE guid IN (?)", [ids]);
+  if (user.companyId) broadcastRealtimeEvent(user.companyId, "serials");
   return NextResponse.json({ message: "Bulk deleted (soft)" });
 });

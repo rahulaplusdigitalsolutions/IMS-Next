@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, authorizeOrdersRequest, requireAuth, ApiError } from "@/lib/auth";
+import { authenticateRequest, authorizeOrdersRequest, requireAuth, requireCompany, ApiError } from "@/lib/auth";
 import { safeDate } from "@/lib/helpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
 export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
-  authorizeOrdersRequest(user, "POST", new URL(request.url).pathname, null);
   requireAuth(user);
+  requireCompany(user);
+  authorizeOrdersRequest(user, "POST", new URL(request.url).pathname, null);
 
   const { itemIds, paymentDate, totalAmount, utrId, status, paymentType, settlementDeduction } = await parseJsonBody(request);
   if (!Array.isArray(itemIds) || !itemIds.length) throw new ApiError(400, "No items provided.");
@@ -23,16 +24,16 @@ export const POST = withErrorHandling(async (request) => {
       const amtPer = (numTotal / itemIds.length).toFixed(2);
       const dedPer = (numDeduction / itemIds.length).toFixed(2);
       for (const id of itemIds) {
-        const [ex] = await conn.query("SELECT guid FROM payments WHERE dispatchGuid=?", [id]);
+        const [ex] = await conn.query("SELECT guid FROM payments WHERE dispatchGuid=? AND companyGuid=?", [id, user.companyId]);
         if (ex.length) {
-          await conn.query("UPDATE payments SET paymentDate=?,amount=?,utrId=?,paymentType=?,settlementDeduction=? WHERE dispatchGuid=?", [safeDate(paymentDate), amtPer, utrId, paymentType || "Full", dedPer, id]);
+          await conn.query("UPDATE payments SET paymentDate=?,amount=?,utrId=?,paymentType=?,settlementDeduction=? WHERE dispatchGuid=? AND companyGuid=?", [safeDate(paymentDate), amtPer, utrId, paymentType || "Full", dedPer, id, user.companyId]);
         } else {
-          await conn.query("INSERT INTO payments (guid,dispatchGuid,paymentDate,amount,utrId,paymentType,settlementDeduction) VALUES (UUID(),?,?,?,?,?,?)", [id, safeDate(paymentDate), amtPer, utrId, paymentType || "Full", dedPer]);
+          await conn.query("INSERT INTO payments (guid,companyGuid,dispatchGuid,paymentDate,amount,utrId,paymentType,settlementDeduction) VALUES (UUID(),?,?,?,?,?,?,?)", [user.companyId, id, safeDate(paymentDate), amtPer, utrId, paymentType || "Full", dedPer]);
         }
-        const [ir] = await conn.query("SELECT orderGuid FROM order_items WHERE guid=?", [id]);
+        const [ir] = await conn.query("SELECT orderGuid FROM order_items WHERE guid=? AND companyGuid=?", [id, user.companyId]);
         if (ir.length) {
-          await conn.query("UPDATE orders SET status=? WHERE guid=?", [status || "Completed", ir[0].orderGuid]);
-          await conn.query("UPDATE order_logistics SET logisticsStatus=CASE WHEN logisticsStatus!='Delivered' THEN 'Delivered' ELSE logisticsStatus END WHERE orderGuid=?", [ir[0].orderGuid]);
+          await conn.query("UPDATE orders SET status=? WHERE guid=? AND companyGuid=?", [status || "Completed", ir[0].orderGuid, user.companyId]);
+          await conn.query("UPDATE order_logistics SET logisticsStatus=CASE WHEN logisticsStatus!='Delivered' THEN 'Delivered' ELSE logisticsStatus END WHERE orderGuid=? AND companyGuid=?", [ir[0].orderGuid, user.companyId]);
         }
       }
       await conn.commit();

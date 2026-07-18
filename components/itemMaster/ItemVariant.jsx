@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import axios from "axios";
-import { Plus, Loader2, ListTree, ArrowLeft, Trash2, Barcode } from "lucide-react";
+import { Plus, Loader2, ListTree, ArrowLeft, Trash2, Barcode, Hash, ChevronDown, ChevronUp } from "lucide-react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -19,6 +19,33 @@ const ItemVariant = () => {
   
   const [loading, setLoading] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
+
+  // Click a variant to expand and see its serial numbers
+  const [expandedVariantId, setExpandedVariantId] = useState(null);
+  const [serialsByVariant, setSerialsByVariant] = useState({});
+  const [loadingSerialsFor, setLoadingSerialsFor] = useState(null);
+
+  const toggleVariantSerials = async (variantId) => {
+    if (expandedVariantId === variantId) {
+      setExpandedVariantId(null);
+      return;
+    }
+    setExpandedVariantId(variantId);
+    if (serialsByVariant[variantId]) return;
+    setLoadingSerialsFor(variantId);
+    try {
+      const response = await axios.get(`${API_BASE_URL}/Inventory/GetVariantSerials`, {
+        params: { itemVariantId: variantId },
+        headers: getHeaders(),
+      });
+      setSerialsByVariant((prev) => ({ ...prev, [variantId]: response.data?.data || [] }));
+    } catch (error) {
+      console.error("Failed to load serials", error);
+      setSerialsByVariant((prev) => ({ ...prev, [variantId]: [] }));
+    } finally {
+      setLoadingSerialsFor(null);
+    }
+  };
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -209,22 +236,29 @@ const ItemVariant = () => {
                 <tbody className="divide-y divide-slate-100">
               {variants.length > 0 ? (
                 variants.map((v, index) => (
-                  <tr key={v.itemVariantId || index} className="hover:bg-indigo-50/30 transition-colors">
-                    
+                  <React.Fragment key={v.itemVariantId || index}>
+                  <tr className="hover:bg-indigo-50/30 transition-colors cursor-pointer" onClick={() => toggleVariantSerials(v.itemVariantId)}>
                     <td className="py-4 px-6 text-sm font-bold text-slate-800 font-mono">
-                      <span className="bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                      <span className="bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 inline-flex items-center gap-1.5">
                         {v.variantCode}
+                        {expandedVariantId === v.itemVariantId ? <ChevronUp size={13} className="text-slate-400" /> : <ChevronDown size={13} className="text-slate-400" />}
                       </span>
                     </td>
-                    <td className="py-4 px-6 text-center">
+                    <td className="py-4 px-6 text-center" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-2">
-                        <button 
+                        <button
+                          onClick={() => toggleVariantSerials(v.itemVariantId)}
+                          className="bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+                        >
+                          <Hash size={14} /> Serial No.
+                        </button>
+                        <button
                           onClick={() => router.push(`/variantBarcode?itemVariantId=${v.itemVariantId}`)}
                           className="bg-sky-50 border border-sky-100 hover:bg-sky-100 text-sky-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1"
                         >
                           <Barcode size={14} /> Map Barcode
                         </button>
-                        <button 
+                        <button
                           onClick={() => handleDeleteVariant(v.itemVariantId)}
                           className="bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1"
                         >
@@ -233,6 +267,36 @@ const ItemVariant = () => {
                       </div>
                     </td>
                   </tr>
+                  {expandedVariantId === v.itemVariantId && (
+                    <tr className="bg-slate-50">
+                      <td colSpan={2} className="px-6 py-4">
+                        {loadingSerialsFor === v.itemVariantId ? (
+                          <div className="flex items-center gap-2 text-sm text-slate-500">
+                            <Loader2 size={14} className="animate-spin" /> Loading serial numbers...
+                          </div>
+                        ) : (serialsByVariant[v.itemVariantId] || []).length === 0 ? (
+                          <p className="text-sm text-slate-400">No serial numbers found for this variant.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {(serialsByVariant[v.itemVariantId] || []).map((s) => (
+                              <span
+                                key={s.guid}
+                                title={`Status: ${s.status}${s.landingPrice ? ` · Landing: ₹${s.landingPrice}` : ""}`}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
+                                  s.status === "Available"
+                                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                                    : "bg-slate-100 border-slate-200 text-slate-600"
+                                }`}
+                              >
+                                {s.value}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 ))
               ) : (
                 <tr>

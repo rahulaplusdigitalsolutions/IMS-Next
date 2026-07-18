@@ -8,6 +8,8 @@ import {
   Receipt, Truck, FileText, ExternalLink
 } from "lucide-react"; 
 import { format } from "date-fns";
+import DayFilterSelect from "@/components/common/DayFilterSelect";
+import { getDayFilterRange, isWithinDayFilter } from "@/lib/client/dayFilter";
 import axios from "axios";
 import { printerService } from "@/lib/services/api"; 
 
@@ -29,9 +31,13 @@ const getAuthHeaders = () => {
   }
 };
 
-export default function Damaged({ returns = [], onRefresh, currentUser }) {
+export default function Damaged({ returns = [], onRefresh, currentUser, initialDayFilter = "all", initialCustomStart = "", initialCustomEnd = "" }) {
   
   const [searchTerm, setSearchTerm] = useState("");
+  const [dayFilter, setDayFilter] = useState(initialDayFilter);
+  const [customStart, setCustomStart] = useState(initialCustomStart);
+  const [customEnd, setCustomEnd] = useState(initialCustomEnd);
+  const dayRange = getDayFilterRange(dayFilter, customStart, customEnd);
   const [deleting, setDeleting] = useState(null); // ✅ Track deleting state
   const [editingItem, setEditingItem] = useState(null);
   const [editForm, setEditForm] = useState({ condition: "Damaged", repairCost: "" });
@@ -42,7 +48,7 @@ export default function Damaged({ returns = [], onRefresh, currentUser }) {
   const [orderDetailsError, setOrderDetailsError] = useState("");
   const [loadingOrderDetails, setLoadingOrderDetails] = useState(false);
 
-  const canManage = (currentUser?.role === 'Admin' || currentUser?.role === 'SuperAdmin') || !!currentUser?.allow_edit_damaged;
+  const canManage = currentUser?.role === 'Admin' || !!currentUser?.allow_edit_damaged;
 
   const getReturnDispatchId = (item) => {
     const rawValue =
@@ -76,13 +82,13 @@ export default function Damaged({ returns = [], onRefresh, currentUser }) {
     try {
       const dispatchDetails = await printerService.getDispatchById(dispatchGuid);
       if (!dispatchDetails) {
-        setOrderDetailsError("Order details fetch nahi ho payi.");
+        setOrderDetailsError("Could not fetch order details.");
         return;
       }
       setSelectedDispatchDetails(dispatchDetails);
     } catch (error) {
       console.error("Failed to load order details:", error);
-      setOrderDetailsError("Order details load nahi ho payi.");
+      setOrderDetailsError("Could not load order details.");
     } finally {
       setLoadingOrderDetails(false);
     }
@@ -103,6 +109,7 @@ export default function Damaged({ returns = [], onRefresh, currentUser }) {
     // Exclude stationery items
     const modelName = r.serialGuid?.modelGuid?.name || r.modelName || "";
     if (modelName === "Stationery") return false;
+    if (!isWithinDayFilter(r.returnDate || r.createdAt, dayRange)) return false;
 
     return (
       (r.serialValue || "").toString().toLowerCase().includes(search) ||
@@ -220,25 +227,35 @@ export default function Damaged({ returns = [], onRefresh, currentUser }) {
           </div>
 
           {/* Search Bar */}
-          <div className="relative w-full md:w-80 group">
-            <div className="absolute inset-0 bg-red-500 rounded-xl blur opacity-0 group-hover:opacity-10 transition-opacity" />
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input 
-                className="w-full border border-slate-200 pl-10 pr-8 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all shadow-sm"
-                placeholder="Search damaged items..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              {searchTerm && (
-                <button 
-                  onClick={() => setSearchTerm("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 transition"
-                >
-                  <X size={14} />
-                </button>
-              )}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+            <div className="relative w-full md:w-80 group">
+              <div className="absolute inset-0 bg-red-500 rounded-xl blur opacity-0 group-hover:opacity-10 transition-opacity" />
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  className="w-full border border-slate-200 pl-10 pr-8 py-2.5 rounded-xl text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition-all shadow-sm"
+                  placeholder="Search damaged items..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 transition"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
             </div>
+            <DayFilterSelect
+              value={dayFilter}
+              onChange={setDayFilter}
+              customStart={customStart}
+              onCustomStartChange={setCustomStart}
+              customEnd={customEnd}
+              onCustomEndChange={setCustomEnd}
+            />
           </div>
         </div>
       </div>

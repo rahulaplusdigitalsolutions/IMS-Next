@@ -3,6 +3,7 @@ import { mysqlPool } from "@/lib/db";
 import { authenticateRequest, authorizeReadWrite, ALL_AUTHENTICATED_ROLES, ApiError } from "@/lib/auth";
 import { logUserActivity } from "@/lib/helpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
+import { broadcastRealtimeEvent } from "@/lib/realtimeEvents";
 
 const authorize = (user, method) =>
   authorizeReadWrite(user, method, {
@@ -57,6 +58,7 @@ export const PUT = withErrorHandling(async (request, { params }) => {
       id]
   );
   await logUserActivity(mysqlPool, user, "Update Model", [{ field: "name", newValue: name || cur.name }], request.headers.get("x-forwarded-for") || null);
+  broadcastRealtimeEvent(user.companyId, "models");
   return NextResponse.json({ message: "Model updated" });
 });
 
@@ -87,5 +89,6 @@ export const DELETE = withErrorHandling(async (request, { params }) => {
   }
   if (blockedBySerials) throw new ApiError(400, "Cannot delete: Model has active serials.");
   await logUserActivity(mysqlPool, user, "Delete Model", [{ field: "id", oldValue: id, newValue: "Deleted" }], request.headers.get("x-forwarded-for") || null);
+  broadcastRealtimeEvent(user.companyId, "models");
   return NextResponse.json({ message: "Model deleted (soft)" });
 });

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Shield, Users as UsersIcon, UserPlus, Edit3, Trash2, Loader2,
   Mail, Phone, Check, Eye, Search, Settings2, Key,
-  CheckCircle2, X, ShieldCheck,
+  CheckCircle2, X, ShieldCheck, Building2, Globe,
 } from "lucide-react";
 import { printerService } from "@/lib/services/api";
 import { ROLE_OPTIONS } from "@/lib/client/rbac";
@@ -23,6 +23,7 @@ export default function Users({ currentUser }) {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("All");
   const [viewingUser, setViewingUser] = useState(null);
+  const [companies, setCompanies] = useState([]);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -36,7 +37,16 @@ export default function Users({ currentUser }) {
     }
   };
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => {
+    loadUsers();
+    printerService.getCompanies().then((data) => { if (Array.isArray(data)) setCompanies(data); });
+  }, []);
+
+  const companyNameByGuid = useMemo(() => {
+    const map = {};
+    companies.forEach((c) => { map[c.guid] = c.name; });
+    return map;
+  }, [companies]);
 
   const stats = useMemo(() =>
     ROLE_OPTIONS.map(r => ({ ...r, count: users.filter(u => u.role === r.value).length })),
@@ -233,7 +243,7 @@ export default function Users({ currentUser }) {
                         <p className="text-xs text-slate-400 font-medium mt-0.5">@{user.username}</p>
                       )}
                       <div className="flex justify-center mt-2">
-                        <RoleBadge role={user.role} />
+                        <RoleBadge role={user.role} label={user.roleLabel} />
                       </div>
                     </div>
 
@@ -254,6 +264,27 @@ export default function Users({ currentUser }) {
                         )}
                       </div>
                     )}
+
+                    {/* Company access */}
+                    <div className="flex justify-center mb-3">
+                      {user.allCompaniesAccess ? (
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200">
+                          <Globe size={11} /> All Companies
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 text-slate-600 text-[11px] font-semibold border border-slate-200 max-w-full"
+                          title={(user.companyIds || []).map((id) => companyNameByGuid[id] || id).join(", ")}
+                        >
+                          <Building2 size={11} className="shrink-0" />
+                          <span className="truncate">
+                            {(user.companyIds || []).length === 0
+                              ? "No company access"
+                              : (user.companyIds || []).map((id) => companyNameByGuid[id] || "…").join(", ")}
+                          </span>
+                        </span>
+                      )}
+                    </div>
 
                     <div className="flex-1" />
 

@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
-import xlsx from "xlsx";
+import * as xlsx from "xlsx";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest } from "@/lib/auth";
+import { authenticateRequest, requireCompany, resolveScopedCompanyGuid } from "@/lib/auth";
 import { authorizeSerials } from "@/lib/serialsAuth";
 import { withErrorHandling } from "@/lib/apiResponse";
 
 export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeSerials(user, "GET");
+
+  const companyGuid = resolveScopedCompanyGuid(user, request);
+  const c = (alias) => (companyGuid ? `AND ${alias}.companyGuid = ?` : "");
+  const params = companyGuid ? Array(6).fill(companyGuid) : [];
 
   const [rows] = await mysqlPool.query(`
     SELECT s.guid as id, s.modelGuid as modelId,
@@ -17,13 +22,13 @@ export const GET = withErrorHandling(async (request) => {
            COALESCE(m.mrp, 0) as mrp,
            s.status, s.landingPriceReason, s.createdAt
     FROM serials s
-    LEFT JOIN models m ON s.modelGuid=m.guid AND m.isDeleted=0
-    LEFT JOIN inventoryitemvariant itv ON s.modelGuid=itv.itemVariantId AND itv.isDeleted=0
-    LEFT JOIN inventoryitemmaster i ON itv.itemId=i.itemId AND i.isDeleted=0
-    LEFT JOIN inventorybrandmaster b ON i.brandId=b.brandId AND b.isDeleted=0
-    LEFT JOIN godowns g ON s.godownGuid=g.guid AND g.isDeleted=0
-    WHERE s.isDeleted=0
-  `);
+    LEFT JOIN models m ON s.modelGuid=m.guid AND m.isDeleted=0 ${c("m")}
+    LEFT JOIN inventoryitemvariant itv ON s.modelGuid=itv.itemVariantId AND itv.isDeleted=0 ${c("itv")}
+    LEFT JOIN inventoryitemmaster i ON itv.itemId=i.itemId AND i.isDeleted=0 ${c("i")}
+    LEFT JOIN inventorybrandmaster b ON i.brandId=b.brandId AND b.isDeleted=0 ${c("b")}
+    LEFT JOIN godowns g ON s.godownGuid=g.guid AND g.isDeleted=0 ${c("g")}
+    WHERE s.isDeleted=0 ${c("s")}
+  `, params);
   const data = rows.map((r) => ({
     ID: r.id, "Model ID": r.modelId, "Model Name": r.modelName, Company: r.company,
     "Serial Number": r.serialNumber, Godown: r.godownName || "", "Godown GUID": r.godownGuid || "",

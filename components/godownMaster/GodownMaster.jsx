@@ -36,7 +36,7 @@ export default function GodownMaster({ currentUser }) {
   const [historyPage, setHistoryPage] = useState(1);
   const [historyTotal, setHistoryTotal] = useState(0);
 
-  const canManage = (currentUser?.role === 'Admin' || currentUser?.role === 'SuperAdmin') || !!currentUser?.allow_edit_godown;
+  const canManage = currentUser?.role === 'Admin' || !!currentUser?.allow_edit_godown;
 
   const fetchGodowns = async () => {
     try {

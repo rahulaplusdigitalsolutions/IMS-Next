@@ -10,6 +10,15 @@ import * as XLSX from 'xlsx';
 import StockInModals from "./StockInModals";
 import { inventoryService } from "@/lib/services/inventoryService";
 import { printerService } from "@/lib/services/api";
+import DayFilterSelect from "@/components/common/DayFilterSelect";
+import { getDayFilterRange } from "@/lib/client/dayFilter";
+
+const toYmd = (d) => {
+  if (!d) return "";
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return "";
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+};
 
 
 // In a real crypto JS environment we'd use crypto.randomUUID()
@@ -20,7 +29,7 @@ const generateUUID = () => {
     });
 };
 
-const StockIn = ({ onRefresh }) => {
+const StockIn = ({ onRefresh, initialDayFilter = "all", initialCustomStart = "", initialCustomEnd = "" }) => {
   const [stockInId, setStockInId] = useState("");
   const [vendors, setVendors] = useState([]);
   const [vendorId, setVendorId] = useState("");
@@ -40,10 +49,27 @@ const StockIn = ({ onRefresh }) => {
   const [isFinalized, setIsFinalized] = useState(false);
   const [invoiceFile, setInvoiceFile] = useState(null);
   const [uploadingFile, setUploadingFile] = useState(false);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState(() => {
+    if (initialDayFilter === "custom") return initialCustomStart;
+    const range = getDayFilterRange(initialDayFilter);
+    return range ? toYmd(range.start) : "";
+  });
+  const [endDate, setEndDate] = useState(() => {
+    if (initialDayFilter === "custom") return initialCustomEnd;
+    const range = getDayFilterRange(initialDayFilter);
+    return range ? toYmd(range.end) : "";
+  });
   const [exporting, setExporting] = useState(false);
   const [showDateFilter, setShowDateFilter] = useState(false);
+  const [dayFilter, setDayFilter] = useState(initialDayFilter);
+
+  const handleDayFilterChange = (key) => {
+    setDayFilter(key);
+    if (key === "custom") return; // wait for custom start/end inputs below
+    const range = getDayFilterRange(key);
+    setStartDate(range ? toYmd(range.start) : "");
+    setEndDate(range ? toYmd(range.end) : "");
+  };
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -1124,7 +1150,7 @@ const StockIn = ({ onRefresh }) => {
       {/* BARCODE SCANNER */}
       <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-6 mb-8">
          <label className="block text-xs font-bold text-indigo-700 uppercase mb-2 flex items-center gap-2">
-           <Search size={14} /> Barcode Scan — Aitem scan karo Enter dabao (Alt+B)
+           <Search size={14} /> Barcode Scan — Scan the item and press Enter (Alt+B)
          </label>
          <div className="relative">
             <Search size={20} className="absolute left-4 top-3.5 text-indigo-300" />
@@ -1135,7 +1161,7 @@ const StockIn = ({ onRefresh }) => {
               onChange={(e) => setBarcodeInput(e.target.value)}
               onKeyDown={handleBarcodeEnterPress}
               className="w-full bg-white border-2 border-indigo-200 rounded-xl pl-12 pr-4 py-3 text-indigo-900 font-mono font-bold text-lg focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 outline-none transition-all shadow-sm placeholder:text-indigo-200 placeholder:font-sans placeholder:font-medium placeholder:text-base disabled:bg-slate-100 disabled:border-slate-200 disabled:placeholder:text-slate-300"
-              placeholder={isFinalized ? "Locked — Finalized Record" : "Barcode scan karo aur Enter dabao…"}
+              placeholder={isFinalized ? "Locked — Finalized Record" : "Scan barcode and press Enter…"}
             />
          </div>
       </div>
@@ -1336,6 +1362,15 @@ const StockIn = ({ onRefresh }) => {
                </button>
 
                <div className="h-6 w-[1px] bg-slate-200 mx-1 hidden sm:block"></div>
+
+               <DayFilterSelect
+                  value={dayFilter}
+                  onChange={handleDayFilterChange}
+                  customStart={startDate}
+                  onCustomStartChange={setStartDate}
+                  customEnd={endDate}
+                  onCustomEndChange={setEndDate}
+               />
 
                <button
                   onClick={() => setShowDateFilter(!showDateFilter)}

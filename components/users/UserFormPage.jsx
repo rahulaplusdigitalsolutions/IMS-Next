@@ -1,10 +1,10 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft, Shield, UserPlus, Save, Loader2,
   User, Mail, Phone, Receipt, Check, Lock, Settings2, Key,
-  Briefcase, XCircle, ChevronLeft, ChevronRight, ShieldCheck,
+  Briefcase, XCircle, ChevronLeft, ChevronRight, ShieldCheck, Building2, CheckCircle,
 } from "lucide-react";
 import { printerService } from "@/lib/services/api";
 import { ROLE_OPTIONS } from "@/lib/client/rbac";
@@ -24,10 +24,17 @@ export default function UserFormPage({ currentUser, onCurrentUserUpdate, editUse
   const router = useRouter();
   const navigate = (path) => router.push(path);
 
+  const [customRoles, setCustomRoles] = useState([]);
+
+  useEffect(() => {
+    printerService.getRoles().then(setCustomRoles).catch(() => setCustomRoles([]));
+  }, []);
+
   const [form, setForm] = useState(editUser ? {
     username: editUser.username || "",
     password: "",
     role: editUser.role || "User",
+    roleLabel: editUser.roleLabel || null,
     fullName: editUser.fullName || "",
     email: editUser.email || "",
     phone: editUser.phone || "",
@@ -44,13 +51,37 @@ export default function UserFormPage({ currentUser, onCurrentUserUpdate, editUse
     allow_edit_returns: !!editUser.allow_edit_returns,
     allow_edit_fbf_fba: !!editUser.allow_edit_fbf_fba,
     allow_edit_warranty: !!editUser.allow_edit_warranty,
-  } : INITIAL_FORM);
+    companyIds: Array.isArray(editUser.companyIds) ? editUser.companyIds : [],
+    allCompaniesAccess: !!editUser.allCompaniesAccess,
+  } : { ...INITIAL_FORM, companyIds: [], allCompaniesAccess: false });
 
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [companies, setCompanies] = useState([]);
+  const [companiesLoading, setCompaniesLoading] = useState(true);
+
+  useEffect(() => {
+    printerService.getCompanies()
+      .then((data) => { if (Array.isArray(data)) setCompanies(data); })
+      .finally(() => setCompaniesLoading(false));
+  }, []);
+
+  const toggleCompany = (guid) => {
+    setForm((prev) => ({
+      ...prev,
+      companyIds: prev.companyIds.includes(guid)
+        ? prev.companyIds.filter((c) => c !== guid)
+        : [...prev.companyIds, guid],
+    }));
+  };
 
   const handleSave = async () => {
+    if (!editUser && !form.allCompaniesAccess && form.companyIds.length === 0) {
+      setError("Assign at least one company to this user, or they won't be able to log in.");
+      setStep(0);
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -154,23 +185,41 @@ export default function UserFormPage({ currentUser, onCurrentUserUpdate, editUse
                     <p className="text-xs text-slate-500 mt-0.5">Choose what level of access this member gets.</p>
                   </div>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   {ROLE_OPTIONS.map(opt => {
                     const cfg = ROLE_CONFIG[opt.value] || {};
-                    const active = form.role === opt.value;
+                    const active = form.role === opt.value && !form.roleLabel;
                     const icons = { Admin: Shield, Supervisor: Briefcase, Accountant: Receipt, User, Operator: Settings2 };
                     const Icon = icons[opt.value] || User;
                     return (
                       <button
                         key={opt.value}
                         type="button"
-                        onClick={() => setForm(prev => ({ ...prev, role: opt.value, permissions: DEFAULT_ROLE_PERMISSIONS[opt.value] || [] }))}
+                        onClick={() => setForm(prev => ({ ...prev, role: opt.value, roleLabel: null, permissions: DEFAULT_ROLE_PERMISSIONS[opt.value] || [] }))}
                         className={`flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 text-sm font-bold transition-all flex-1 justify-center ${
                           active ? `${cfg.bg} ${cfg.border} ${cfg.text} shadow-sm` : "border-slate-200 hover:border-slate-300 text-slate-500 hover:bg-slate-50 bg-white"
                         }`}
                       >
                         <Icon size={15} />
                         {opt.label}
+                      </button>
+                    );
+                  })}
+                  {customRoles.map(cr => {
+                    const cfg = ROLE_CONFIG[cr.baseTier] || {};
+                    const active = form.roleLabel === cr.name;
+                    return (
+                      <button
+                        key={cr.guid}
+                        type="button"
+                        onClick={() => setForm(prev => ({ ...prev, role: cr.baseTier, roleLabel: cr.name, permissions: DEFAULT_ROLE_PERMISSIONS[cr.baseTier] || [] }))}
+                        title={`Custom role — behaves like ${cr.baseTier}`}
+                        className={`flex items-center gap-2 px-5 py-2.5 rounded-xl border-2 text-sm font-bold transition-all flex-1 justify-center ${
+                          active ? `${cfg.bg} ${cfg.border} ${cfg.text} shadow-sm` : "border-slate-200 hover:border-slate-300 text-slate-500 hover:bg-slate-50 bg-white"
+                        }`}
+                      >
+                        <Briefcase size={15} />
+                        {cr.name}
                       </button>
                     );
                   })}
@@ -250,12 +299,70 @@ export default function UserFormPage({ currentUser, onCurrentUserUpdate, editUse
                   </div>
                 </div>
               </div>
+
+              {/* Company Access */}
+              <div className="px-8 py-6 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-1">
+                  <h2 className="text-sm font-black text-slate-700 uppercase tracking-wider">Company Access</h2>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-indigo-50/60 border border-indigo-100 mb-4">
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Full access to all companies</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Also covers any company created later — no need to re-assign.</p>
+                  </div>
+                  <Toggle
+                    checked={form.allCompaniesAccess}
+                    onChange={(val) => setForm((prev) => ({ ...prev, allCompaniesAccess: val }))}
+                  />
+                </div>
+
+                {form.allCompaniesAccess ? (
+                  <p className="text-xs text-slate-400 italic">Individual company selection is skipped — this member can already log into every company.</p>
+                ) : (
+                  <>
+                    <p className="text-xs text-slate-500 mb-4">Which company/companies can this member log into? At least one is required.</p>
+                    {companiesLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <Loader2 size={14} className="animate-spin" /> Loading companies...
+                      </div>
+                    ) : companies.length === 0 ? (
+                      <p className="text-sm text-slate-400 italic">No companies found — add one in Company Master first.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {companies.map((c) => {
+                          const checked = form.companyIds.includes(c.guid);
+                          return (
+                            <button
+                              key={c.guid}
+                              type="button"
+                              onClick={() => toggleCompany(c.guid)}
+                              disabled={!c.isActive}
+                              className={`flex items-center gap-2 px-4 py-2 rounded-xl border-2 text-sm font-semibold transition-all ${
+                                checked
+                                  ? "bg-indigo-50 border-indigo-400 text-indigo-700"
+                                  : !c.isActive
+                                    ? "border-slate-100 text-slate-300 bg-slate-50 cursor-not-allowed"
+                                    : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50"
+                              }`}
+                            >
+                              {checked ? <CheckCircle size={14} /> : <Building2 size={14} />}
+                              {c.name}
+                              {!c.isActive && <span className="text-[10px] uppercase font-bold text-slate-400">Inactive</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           )}
 
           {/* ── Step 1: Feature Access ── */}
           {step === 1 && (
-            form.role === "Admin" && currentUser?.role !== "SuperAdmin" ? (
+            form.role === "Admin" ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-16 shadow-sm flex flex-col items-center justify-center text-center">
                 <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mb-4 border-2 border-indigo-100">
                   <Shield size={36} className="text-indigo-600" />
@@ -347,7 +454,7 @@ export default function UserFormPage({ currentUser, onCurrentUserUpdate, editUse
 
           {/* ── Step 2: Write Rules ── */}
           {step === 2 && (
-            form.role === "Admin" && currentUser?.role !== "SuperAdmin" ? (
+            form.role === "Admin" ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-16 shadow-sm flex flex-col items-center justify-center text-center">
                 <div className="w-20 h-20 bg-indigo-50 rounded-full flex items-center justify-center mb-4 border-2 border-indigo-100">
                   <ShieldCheck size={36} className="text-indigo-600" />

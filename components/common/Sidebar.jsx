@@ -15,6 +15,7 @@ import {
   Users as UsersIcon,
   History,
   User,
+  Briefcase,
   ChevronDown,
   ChevronRight,
   ShoppingCart,
@@ -25,7 +26,10 @@ import {
   Settings,
   ShieldAlert,
   Mail,
-  Box
+  Box,
+  Building2,
+  UploadCloud,
+  Ban
 } from "lucide-react";
 
 export default function Sidebar({ currentUser, isAdmin }) {
@@ -41,7 +45,13 @@ export default function Sidebar({ currentUser, isAdmin }) {
   };
 
   const navItems = [
+    // Contracts
+    { id: "contracts-upload", label: "Upload Contract", icon: UploadCloud, group: "contracts", path: "/contracts/upload" },
+    { id: "contracts-list", label: "Saved Contracts", icon: FileText, group: "contracts", path: "/contracts" },
+    { id: "contracts-cancelled", label: "Cancelled Contracts", icon: Ban, group: "contracts", path: "/contracts/cancelled" },
+
     // Masters
+    { id: "companyMaster", label: "Company Master", icon: Building2, group: "masters" },
     { id: "categoryMaster", label: "Category Master", icon: Tags, group: "masters" },
     { id: "brandMaster", label: "Brand Master", icon: Barcode, group: "masters" },
     { id: "vendorMaster", label: "Vendor Master", icon: UsersIcon, group: "masters" },
@@ -75,16 +85,83 @@ export default function Sidebar({ currentUser, isAdmin }) {
   ];
 
   if (!isSidebarVisible) {
+    const mastersGroup = ["companyMaster","categoryMaster","brandMaster","vendorMaster","categoryBrandMapping","unitMaster","itemMaster","comboMaster","godownMaster","fbfFbaMaster"];
+    const inventoryGroup = ["models","serials","warranty","stockIn","currentStock","fbfFbaManagement"];
+    const ordersGroup = ["orderTracking","dispatch","stockOut"];
+    const operationsGroup = ["returns","damaged","installations"];
+    const settingsGroup = ["users","roles","userActivity","reports","profile","settings","notifications","warrantyEmail"];
+
+    const expandTo = (group) => {
+      setIsSidebarVisible(true);
+      setExpandedMenus((prev) => ({ ...prev, [group]: true }));
+    };
+
     return (
-      <aside className="bg-white border-r flex flex-col items-center py-4 w-16 transition-all">
-        <div className="flex flex-col items-center justify-center flex-1">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/aplus.png" alt="Company Logo" className="h-8 w-auto object-contain mb-[-35px]" />
-        </div>
+      <aside className="bg-white border-r flex flex-col items-center py-3 w-16 transition-all">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/aplus.png" alt="Logo" className="h-8 w-auto object-contain mb-3" />
+        <nav className="flex-1 flex flex-col items-center gap-1.5 overflow-y-auto w-full px-2 py-1">
+          <button
+            onClick={() => router.push("/")}
+            title="Dashboard"
+            className={`p-2.5 rounded-xl transition-colors ${activeTab === "dashboard" ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <LayoutDashboard size={20} />
+          </button>
+          <button
+            onClick={() => expandTo("contracts")}
+            title="Contracts"
+            className={`p-2.5 rounded-xl transition-colors ${activeTab === "contracts" ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <FileText size={20} />
+          </button>
+          <button
+            onClick={() => expandTo("masters")}
+            title="Masters"
+            className={`p-2.5 rounded-xl transition-colors ${mastersGroup.includes(activeTab) ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <Tags size={20} />
+          </button>
+          <button
+            onClick={() => expandTo("inventory")}
+            title="Inventory"
+            className={`p-2.5 rounded-xl transition-colors ${inventoryGroup.includes(activeTab) ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <Warehouse size={20} />
+          </button>
+          <button
+            onClick={() => expandTo("orders")}
+            title="Order Processing"
+            className={`p-2.5 rounded-xl transition-colors ${ordersGroup.includes(activeTab) ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <ShoppingCart size={20} />
+          </button>
+          <button
+            onClick={() => router.push("/billing")}
+            title="Billing"
+            className={`p-2.5 rounded-xl transition-colors ${activeTab === "billing" ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <Receipt size={20} />
+          </button>
+          <button
+            onClick={() => expandTo("operations")}
+            title="Returns & Damaged"
+            className={`p-2.5 rounded-xl transition-colors ${operationsGroup.includes(activeTab) ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <RotateCcw size={20} />
+          </button>
+          <button
+            onClick={() => router.push("/profile")}
+            title="Settings"
+            className={`p-2.5 rounded-xl transition-colors ${settingsGroup.includes(activeTab) ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <Settings size={20} />
+          </button>
+        </nav>
         <button
           onClick={() => setIsSidebarVisible(true)}
-          className="p-1 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors border border-slate-200 shadow-sm flex items-center justify-center bg-white mt-auto"
           title="Expand Menu"
+          className="mt-2 p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors border border-slate-200 shadow-sm"
         >
           <ChevronRight size={18} />
         </button>
@@ -93,7 +170,7 @@ export default function Sidebar({ currentUser, isAdmin }) {
   }
 
   // Settings mode
-  if (['users','userActivity','reports','profile','settings','notifications','warrantyEmail'].includes(activeTab)) {
+  if (['users','roles','userActivity','reports','profile','settings','notifications','warrantyEmail'].includes(activeTab)) {
     return (
       <aside className="bg-white border-r flex flex-col w-64 h-full shrink-0 animate-sidebar-in transition-all">
         <div className="p-4 flex items-center justify-between border-b border-slate-100">
@@ -104,7 +181,7 @@ export default function Sidebar({ currentUser, isAdmin }) {
             <HideIcon size={18} />
           </button>
         </div>
-        <div className="p-4 font-bold text-indigo-600 text-lg flex items-center gap-2">
+        <div className="p-4 font-bold text-indigo-600 text-lg text-center">
           Inventory Management
         </div>
         <div className="px-4 py-3 flex items-center gap-2.5 border-b border-slate-100">
@@ -117,6 +194,9 @@ export default function Sidebar({ currentUser, isAdmin }) {
           </button>
           <button onClick={() => router.push('/users')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'users' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
             <UsersIcon size={18} /> <span>User Management</span>
+          </button>
+          <button onClick={() => router.push('/roles')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'roles' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+            <Briefcase size={18} /> <span>Manage Roles</span>
           </button>
           <button onClick={() => router.push('/userActivity')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'userActivity' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
             <History size={18} /> <span>User Activity</span>
@@ -150,7 +230,7 @@ export default function Sidebar({ currentUser, isAdmin }) {
           <HideIcon size={18} />
         </button>
       </div>
-      <div className="p-4 font-bold text-indigo-600 text-lg">Inventory Management</div>
+      <div className="p-4 font-bold text-indigo-600 text-lg text-center">Inventory Management</div>
       <nav className="flex-1 px-2 space-y-1 overflow-y-auto pb-4">
         <button
           onClick={() => router.push("/")}
@@ -159,6 +239,23 @@ export default function Sidebar({ currentUser, isAdmin }) {
           <LayoutDashboard size={18} />
           <span>Dashboard</span>
         </button>
+
+        {/* CONTRACTS */}
+        <div className="space-y-1">
+          <button onClick={() => toggleSubmenu("contracts")} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:bg-slate-100">
+            <div className="flex items-center gap-3"><FileText size={18} /><span>Contracts</span></div>
+            {expandedMenus.contracts ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+          {expandedMenus.contracts && (
+            <div className="space-y-1 ml-4 border-l border-slate-100 animate-in slide-in-from-top-1">
+              {navItems.filter(i => i.group === "contracts").map(item => (
+                <button key={item.id} onClick={() => router.push(item.path || `/${item.id}`)} className={`w-full flex gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${pathname === (item.path || `/${item.id}`) ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+                  {item.icon && <item.icon size={14} />} <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* MASTERS */}
         <div className="space-y-1">
@@ -211,6 +308,11 @@ export default function Sidebar({ currentUser, isAdmin }) {
           )}
         </div>
 
+        {/* BILLING */}
+        <button onClick={() => router.push('/billing')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'billing' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+          <Receipt size={18} /> <span>Billing</span>
+        </button>
+
         {/* OPERATIONS */}
         <div className="space-y-1">
           <button onClick={() => toggleSubmenu("operations")} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:bg-slate-100">
@@ -233,18 +335,6 @@ export default function Sidebar({ currentUser, isAdmin }) {
             </div>
           )}
         </div>
-
-        {/* BILLING */}
-        <button onClick={() => router.push('/billing')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'billing' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
-          <Receipt size={18} /> <span>Billing</span>
-        </button>
-
-        {/* SUPER ADMIN */}
-        {currentUser?.role === "SuperAdmin" && (
-          <button onClick={() => router.push('/superAdmin')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'superAdmin' ? 'bg-purple-50 text-purple-600' : 'text-slate-600 hover:bg-slate-100'}`}>
-            <ShieldAlert size={18} /> <span>Super Admin</span>
-          </button>
-        )}
 
         {/* SETTINGS */}
         <button onClick={() => router.push('/profile')} className="w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:bg-slate-100">

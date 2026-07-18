@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import xlsx from "xlsx";
+import * as xlsx from "xlsx";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest } from "@/lib/auth";
+import { authenticateRequest, requireCompany } from "@/lib/auth";
 import { authorizeSerials } from "@/lib/serialsAuth";
 import { withErrorHandling } from "@/lib/apiResponse";
 
 export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeSerials(user, "GET");
 
-  const [models] = await mysqlPool.query("SELECT guid as id, name, company, mrp FROM models WHERE isDeleted=0 ORDER BY name");
-  const [godowns] = await mysqlPool.query("SELECT guid, godownName, godownAddress FROM godowns WHERE isDeleted=0 ORDER BY isDefault DESC, godownName ASC");
+  const [models] = await mysqlPool.query("SELECT guid as id, name, company, mrp FROM models WHERE isDeleted=0 AND companyGuid=? ORDER BY name", [user.companyId]);
+  const [godowns] = await mysqlPool.query("SELECT guid, godownName, godownAddress FROM godowns WHERE isDeleted=0 AND companyGuid=? ORDER BY isDefault DESC, godownName ASC", [user.companyId]);
 
   const wb = xlsx.utils.book_new();
   const tpl = xlsx.utils.json_to_sheet([{ modelId: "paste-model-guid-here", "Model Name (For Reference)": "", godownGuid: "optional-godown-guid", "Godown Name (For Reference)": "", value: "SAMPLE-SER-001", landingPrice: 25000, status: "Available", landingPriceReason: "" }]);

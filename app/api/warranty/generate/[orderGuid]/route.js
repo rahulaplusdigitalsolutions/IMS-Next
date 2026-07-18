@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, ApiError } from "@/lib/auth";
+import { authenticateRequest, requireCompany, ApiError } from "@/lib/auth";
 import { authorizeWarranty } from "@/lib/warrantyAuth";
 import { uploadDir } from "@/lib/upload";
 import { DEFAULT_CERT_HTML, renderTemplate } from "@/lib/warrantyTemplate";
@@ -10,6 +10,7 @@ import { withErrorHandling } from "@/lib/apiResponse";
 
 export const GET = withErrorHandling(async (request, { params }) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeWarranty(user, "GET");
   const { orderGuid } = await params;
 
@@ -26,12 +27,12 @@ export const GET = withErrorHandling(async (request, { params }) => {
       s.value AS serialValue,
       m.name  AS modelName, m.company AS companyName
     FROM orders o
-    LEFT JOIN order_items oi ON oi.orderGuid = o.guid
-    LEFT JOIN serials s      ON oi.serialNumberGuid = s.guid
-    LEFT JOIN models m       ON s.modelGuid = m.guid
-    WHERE o.guid = ?
+    LEFT JOIN order_items oi ON oi.orderGuid = o.guid AND oi.companyGuid = o.companyGuid
+    LEFT JOIN serials s      ON oi.serialNumberGuid = s.guid AND s.companyGuid = o.companyGuid
+    LEFT JOIN models m       ON s.modelGuid = m.guid AND m.companyGuid = o.companyGuid
+    WHERE o.guid = ? AND o.companyGuid = ?
     LIMIT 1
-  `, [orderGuid]);
+  `, [orderGuid, user.companyId]);
 
   if (!orderRows.length) throw new ApiError(404, "Order not found");
   const order = orderRows[0];
@@ -39,14 +40,14 @@ export const GET = withErrorHandling(async (request, { params }) => {
   const [allSerialRows] = await mysqlPool.query(`
     SELECT s.value
     FROM order_items oi
-    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid
-    WHERE oi.orderGuid = ? AND s.value IS NOT NULL
+    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid AND s.companyGuid = oi.companyGuid
+    WHERE oi.orderGuid = ? AND s.value IS NOT NULL AND oi.companyGuid = ?
     ORDER BY s.value
-  `, [orderGuid]);
+  `, [orderGuid, user.companyId]);
   order.allSerials = allSerialRows.map((r) => r.value).join(", ");
   order.serialCount = allSerialRows.length || order.quantity || 1;
 
-  const [tplRows] = await mysqlPool.query("SELECT * FROM warranty_template WHERE id=1");
+  const [tplRows] = await mysqlPool.query("SELECT * FROM warranty_template WHERE companyGuid=? LIMIT 1", [user.companyId]);
   const template = tplRows[0] || {};
 
   let headerImgUrl = null;
@@ -65,8 +66,8 @@ export const GET = withErrorHandling(async (request, { params }) => {
   }
 
   const [existing] = await mysqlPool.query(
-    "SELECT guid, htmlContent, status FROM wc_certs WHERE orderGuid=? ORDER BY createdAt DESC LIMIT 1",
-    [orderGuid]
+    "SELECT guid, htmlContent, status FROM wc_certs WHERE orderGuid=? AND companyGuid=? ORDER BY createdAt DESC LIMIT 1",
+    [orderGuid, user.companyId]
   );
 
   let html, certGuid = null, certStatus = "draft";
@@ -79,7 +80,7 @@ export const GET = withErrorHandling(async (request, { params }) => {
     const bodyTemplate = isStale ? DEFAULT_CERT_HTML : template.htmlBody;
 
     if (isStale) {
-      mysqlPool.query("UPDATE warranty_template SET htmlBody=?, headerHtml=NULL WHERE id=1", [DEFAULT_CERT_HTML]).catch(() => {});
+      mysqlPool.query("UPDATE warranty_template SET htmlBody=?, headerHtml=NULL WHERE companyGuid=?", [DEFAULT_CERT_HTML, user.companyId]).catch(() => {});
     }
 
     const bodyHtml = renderTemplate(bodyTemplate, template, order);

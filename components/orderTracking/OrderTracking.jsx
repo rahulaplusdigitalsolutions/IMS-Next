@@ -24,6 +24,10 @@ import {
 } from "./helpers";
 import { Toast, StatusBadge, StatusTimeline } from "./parts";
 import OrderDetailModal from "./OrderDetailModal";
+import ConfirmDraftModal from "./ConfirmDraftModal";
+import DayFilterSelect from "@/components/common/DayFilterSelect";
+import { getDayFilterRange, isWithinDayFilter } from "@/lib/client/dayFilter";
+import { ordersService } from "@/lib/services/ordersService";
 
 export default function OrderTracking({
   orders = [],
@@ -37,13 +41,19 @@ export default function OrderTracking({
   focusOrderId = null,
   onFocusHandled,
   catalogLoaded = false,
-  returnsLoaded = false
+  returnsLoaded = false,
+  initialDayFilter = "all",
+  initialCustomStart = "",
+  initialCustomEnd = "",
 }) {
   const [activeTab, setActiveTab] = useState("active"); // ✅ Updated: "active" | "hold" | "completed" | "cancelled"
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [isCreating, setIsCreating] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [dayFilter, setDayFilter] = useState(initialDayFilter);
+  const [customStart, setCustomStart] = useState(initialCustomStart);
+  const [customEnd, setCustomEnd] = useState(initialCustomEnd);
   const [appearanceModalOpen, setAppearanceModalOpen] = useState(false);
   const [appearanceItem, setAppearanceItem] = useState(null);
 
@@ -51,6 +61,19 @@ export default function OrderTracking({
     e.stopPropagation();
     setAppearanceItem(item);
     setAppearanceModalOpen(true);
+  };
+  const [confirmDraftBatch, setConfirmDraftBatch] = useState(null);
+  const openConfirmDraftModal = (e, batch) => {
+    e.stopPropagation();
+    setConfirmDraftBatch(batch);
+  };
+  const handleConfirmDraft = async (payload) => {
+    const orderGuid = confirmDraftBatch.items[0]?._orderId || confirmDraftBatch.items[0]?.orderId || confirmDraftBatch.id;
+    await ordersService.confirmDraftOrder(orderGuid, payload);
+    setConfirmDraftBatch(null);
+    closeModal();
+    if (onRefresh) onRefresh();
+    showToast("Order confirmed and moved to active orders.", "success");
   };
   const [statusFilter, setStatusFilter] = useState("All");
   const [selectedBatch, setSelectedBatch] = useState(null);
@@ -110,7 +133,7 @@ export default function OrderTracking({
       }
     };
     fetchTags();
-  }, [orders]);
+  }, []);
   useEffect(() => {
     if (catalogLoaded) {
       setLocalModels(Array.isArray(models) ? models : []);
@@ -286,6 +309,8 @@ export default function OrderTracking({
     return Object.values(groups).sort((a, b) => new Date(b.dispatchDate || 0) - new Date(a.dispatchDate || 0));
   }, [localOrders]);
 
+  const dayRange = useMemo(() => getDayFilterRange(dayFilter, customStart, customEnd), [dayFilter, customStart, customEnd]);
+
   const filteredBatches = useMemo(() => {
     return groupedBatches.map(batch => {
       const financials = calculateBatchFinancials(batch.items, returns);
@@ -301,15 +326,19 @@ export default function OrderTracking({
       const hasReturns = batch.financials.returnedCount > 0;
       const hasActive = batch.activeItems.length > 0;
 
+      if (!isWithinDayFilter(batch.dispatchDate || batch.orderDate, dayRange)) return false;
+
       const term = searchTerm.toLowerCase().trim();
 
       // ✅ SKIP tab filtering if searching (Global Search)
       if (!term) {
-        if (activeTab === "active" && (!hasActive || batch.isCompleted || batch.isCancelled || batch.isHold)) return false;
+        const isDraft = batch.status === "Draft";
+        if (activeTab === "active" && (!hasActive || batch.isCompleted || batch.isCancelled || batch.isHold || isDraft)) return false;
         if (activeTab === "returned" && !hasReturns) return false;
         if (activeTab === "hold" && !batch.isHold) return false;
         if (activeTab === "completed" && !batch.isCompleted) return false;
         if (activeTab === "cancelled" && !batch.isCancelled) return false;
+        if (activeTab === "draft" && !isDraft) return false;
       }
 
       if (term) {
@@ -360,7 +389,7 @@ export default function OrderTracking({
       if (activeTab === "returned") displayItems = batch.items.filter(i => isItemReturned(i, returns));
       return { ...batch, displayItems };
     });
-  }, [groupedBatches, searchTerm, statusFilter, activeTab, returns, platformFilter]);
+  }, [groupedBatches, searchTerm, statusFilter, activeTab, returns, platformFilter, dayRange]);
 
   const totalPages = Math.max(1, Math.ceil(filteredBatches.length / itemsPerPage));
 
@@ -375,7 +404,7 @@ export default function OrderTracking({
 
   // ✅ Updated stats to include hold & returned
   const stats = useMemo(() => {
-    let active = 0, hold = 0, completed = 0, cancelled = 0, returned = 0;
+    let active = 0, hold = 0, completed = 0, cancelled = 0, returned = 0, draft = 0;
     groupedBatches.forEach((b) => {
       // ✅ Apply platform filter to stats
       if (platformFilter !== "All") {
@@ -389,14 +418,16 @@ export default function OrderTracking({
       const isCancelled = b.items.every(i => String(i.status).trim() === "Order Cancelled" || i.isDeleted || isItemReturned(i, returns)) && b.items.some(i => String(i.status).trim() === "Order Cancelled" || i.isDeleted);
       const isHold = activeItems.some(i => isHoldStatus(String(i.status).trim()));
       const isCompleted = activeItems.length > 0 && activeItems.every(i => String(i.status).trim() === "Completed");
+      const isDraft = b.status === "Draft";
 
       if (f.returnedCount > 0) returned++;
-      if (activeItems.length > 0 && !isCompleted && !isCancelled && !isHold) active++;
+      if (isDraft) draft++;
+      else if (activeItems.length > 0 && !isCompleted && !isCancelled && !isHold) active++;
       if (isHold) hold++;
       if (isCompleted) completed++;
       if (isCancelled) cancelled++;
     });
-    return { total: groupedBatches.length, active, hold, completed, cancelled, returned };
+    return { total: groupedBatches.length, active, hold, completed, cancelled, returned, draft };
   }, [groupedBatches, returns, platformFilter]); // ✅ Added platformFilter
 
   const handleViewDocument = useCallback((filename) => {
@@ -411,10 +442,10 @@ export default function OrderTracking({
   const handleUploadExtraDoc = async () => {
     if (!extraDocFile || !selectedBatch) return;
     const docLabel = extraDocType === "Other" ? extraDocCustomLabel.trim() : extraDocType;
-    if (!docLabel) { showToast("Document ka naam enter karo", "error"); return; }
+    if (!docLabel) { showToast("Please enter a document name", "error"); return; }
 
     const targetItemId = selectedBatch.items[0]?.id;
-    if (!targetItemId) { showToast("Order item nahi mili", "error"); return; }
+    if (!targetItemId) { showToast("Order item not found", "error"); return; }
 
     setUploadingExtraDoc(true);
     try {
@@ -430,7 +461,7 @@ export default function OrderTracking({
       setExtraDocFile(null);
       setExtraDocCustomLabel("");
       if (extraDocInputRef.current) extraDocInputRef.current.value = "";
-      showToast(`"${docLabel}" upload ho gaya ✅`, "success");
+      showToast(`"${docLabel}" uploaded ✅`, "success");
       onRefresh?.();
     } catch (err) {
       showToast(err.message || "Upload failed ❌", "error");
@@ -457,7 +488,7 @@ export default function OrderTracking({
   const handleReplaceExtraDoc = async (oldFilename, docType, newFile) => {
     if (!newFile || !selectedBatch) return;
     const targetItemId = selectedBatch.items[0]?.id;
-    if (!targetItemId) { showToast("Order item nahi mili", "error"); return; }
+    if (!targetItemId) { showToast("Order item not found", "error"); return; }
 
     try {
       const result = await printerService.uploadOrderDocument(targetItemId, newFile, docType);
@@ -492,10 +523,10 @@ export default function OrderTracking({
   const handleAddSerial = async () => {
     if (!newSerialToAdd || !selectedBatch) return;
     const orderGuid = selectedBatch.items[0]?._orderId || selectedBatch.items[0]?.orderId;
-    if (!orderGuid) { showToast("Order nahi mili", "error"); return; }
+    if (!orderGuid) { showToast("Order not found", "error"); return; }
 
     const matched = localSerials.find(s => String(s.guid || s.id) === String(newSerialToAdd));
-    if (!matched) { showToast("Selected serial mila nahi", "error"); return; }
+    if (!matched) { showToast("Selected serial not found", "error"); return; }
 
     setIsUpdating(true);
     try {
@@ -602,6 +633,10 @@ export default function OrderTracking({
   const handleUpdateStatus = async () => {
     if (!selectedBatch || !newStatus) {
       showToast("Please select a status", "error");
+      return;
+    }
+    if (selectedBatch.status === "Draft" && newStatus === "Order Confirmed") {
+      setConfirmDraftBatch(selectedBatch);
       return;
     }
     if (newStatus === "Order Cancelled" && !cancellationReason.trim()) {
@@ -1257,6 +1292,19 @@ export default function OrderTracking({
           {/* ✅ Updated Tabs - Now with 5 tabs including Returned & Hold */}
           <div className="flex bg-slate-100 p-1 rounded-xl shadow-inner flex-wrap">
             <button
+              onClick={() => setActiveTab("draft")}
+              className={`px-3 py-2 rounded-lg text-sm font-bold transition flex items-center gap-1.5 ${activeTab === "draft"
+                  ? "bg-white text-slate-600 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
+                }`}
+            >
+              <FileText size={15} /> Draft
+              <span className="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-full text-xs">
+                {stats.draft}
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab("active")}
               className={`px-3 py-2 rounded-lg text-sm font-bold transition flex items-center gap-1.5 ${activeTab === "active"
                   ? "bg-white text-indigo-600 shadow-sm"
@@ -1350,6 +1398,15 @@ export default function OrderTracking({
             </select>
           )}
 
+          <DayFilterSelect
+            value={dayFilter}
+            onChange={setDayFilter}
+            customStart={customStart}
+            onCustomStartChange={setCustomStart}
+            customEnd={customEnd}
+            onCustomEndChange={setCustomEnd}
+          />
+
           {/* ✅ New Platform Filter */}
           <select
             className="border border-slate-200 bg-slate-50 px-4 py-2.5 rounded-xl text-sm outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500 focus:bg-white font-medium min-w-[140px]"
@@ -1403,7 +1460,9 @@ export default function OrderTracking({
                   ? "text-orange-700"
                   : activeTab === "hold"
                     ? "text-yellow-700"
-                    : "text-slate-500"
+                    : activeTab === "draft"
+                      ? "text-slate-600"
+                      : "text-slate-500"
             }`}>
             {activeTab === "active"
               ? "Ongoing Orders"
@@ -1413,7 +1472,9 @@ export default function OrderTracking({
                   ? "Orders On Hold"
                   : activeTab === "completed"
                     ? "Completed Order History"
-                    : "Cancelled Orders"}
+                    : activeTab === "draft"
+                      ? "Draft Orders"
+                      : "Cancelled Orders"}
           </span>
           <span className="text-xs font-bold bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-600">
             {filteredBatches.length}
@@ -1457,7 +1518,7 @@ export default function OrderTracking({
                   let representativeItem = batch.activeItems.find(i => String(i.status).trim() !== "Completed") || batch.activeItems[0] || batch.items[0];
                   let rawStatus = representativeItem.status;
                   let displayStatus = resolveDisplayStatus(rawStatus);
-                  const processingPhases = ["Pending", "Order Confirmed", "Order Not Confirmed", "Send for Billing", "Billing", "Order Cancelled", "Order On Hold", "Returned", "Completed"];
+                  const processingPhases = ["Pending", "Order Confirmed", "Order Not Confirmed", "Send for Billing", "Billing", "Order Cancelled", "Order On Hold", "Returned", "Completed", "Draft"];
                   if (!processingPhases.includes(rawStatus) && !processingPhases.includes(displayStatus) && representativeItem.logisticsStatus) {
                     displayStatus = representativeItem.logisticsStatus;
                   }
@@ -1763,12 +1824,16 @@ export default function OrderTracking({
                             ? "No cancelled orders found"
                             : activeTab === "hold"
                               ? "No orders on hold"
-                              : "No active orders found"}
+                              : activeTab === "draft"
+                                ? "No draft orders yet"
+                                : "No active orders found"}
                     </p>
                     <p className="text-sm text-slate-400">
                       {activeTab === "hold"
                         ? "Great! All orders are progressing normally"
-                        : "Try different search criteria"}
+                        : activeTab === "draft"
+                          ? "This tab is coming soon"
+                          : "Try different search criteria"}
                     </p>
                   </td>
                 </tr>
@@ -1857,6 +1922,15 @@ export default function OrderTracking({
         type="order"
         onUpdated={onRefresh}
       />
+      {confirmDraftBatch && (
+        <ConfirmDraftModal
+          batch={confirmDraftBatch}
+          models={localModels}
+          serials={localSerials}
+          onClose={() => setConfirmDraftBatch(null)}
+          onConfirm={handleConfirmDraft}
+        />
+      )}
     </div>
   );
 }

@@ -69,7 +69,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
 };
 
 export const INITIAL_FORM = {
-  username: "", password: "", role: "User", fullName: "", email: "", phone: "",
+  username: "", password: "", role: "User", roleLabel: null, fullName: "", email: "", phone: "",
   permissions: DEFAULT_ROLE_PERMISSIONS["User"],
   allow_edit_models: false, allow_edit_serials: false, allow_edit_godown: false,
   allow_create_order: false, allow_edit_order_processing: false, allow_edit_billing: false,

@@ -71,7 +71,7 @@ const VariantBarcode = () => {
     fetchBarcodes();
     fetchUnits();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawVariantId, navigate]);
+  }, [rawVariantId]);
 
   const handleQtyChange = (e) => {
     const val = e.target.value;
@@ -190,7 +190,7 @@ const VariantBarcode = () => {
         </div>
         
         <button 
-          onClick={() => router.push(-1)} // Or navigate to Variant Master directly
+          onClick={() => router.back()}
           className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all"
         >
           <ArrowLeft size={16} /> Back

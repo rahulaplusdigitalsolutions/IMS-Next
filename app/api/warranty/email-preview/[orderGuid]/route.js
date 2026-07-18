@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, ApiError } from "@/lib/auth";
+import { authenticateRequest, requireCompany, ApiError } from "@/lib/auth";
 import { authorizeWarranty } from "@/lib/warrantyAuth";
 import { withErrorHandling } from "@/lib/apiResponse";
 
 // Returns rendered email subject/body/to/cc/bcc for a given order
 export const GET = withErrorHandling(async (request, { params }) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeWarranty(user, "GET");
   const { orderGuid } = await params;
 
@@ -23,25 +24,25 @@ export const GET = withErrorHandling(async (request, { params }) => {
       s.value AS serialValue,
       m.name  AS modelName, m.company AS companyName
     FROM orders o
-    LEFT JOIN order_items oi ON oi.orderGuid = o.guid
-    LEFT JOIN serials s      ON oi.serialNumberGuid = s.guid
-    LEFT JOIN models m       ON s.modelGuid = m.guid
-    WHERE o.guid = ?
+    LEFT JOIN order_items oi ON oi.orderGuid = o.guid AND oi.companyGuid = o.companyGuid
+    LEFT JOIN serials s      ON oi.serialNumberGuid = s.guid AND s.companyGuid = o.companyGuid
+    LEFT JOIN models m       ON s.modelGuid = m.guid AND m.companyGuid = o.companyGuid
+    WHERE o.guid = ? AND o.companyGuid = ?
     LIMIT 1
-  `, [orderGuid]);
+  `, [orderGuid, user.companyId]);
 
   if (!orderRows.length) throw new ApiError(404, "Order not found");
   const order = orderRows[0];
 
   const [allSerialRows] = await mysqlPool.query(`
     SELECT s.value FROM order_items oi
-    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid
-    WHERE oi.orderGuid = ? AND s.value IS NOT NULL ORDER BY s.value
-  `, [orderGuid]);
+    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid AND s.companyGuid = oi.companyGuid
+    WHERE oi.orderGuid = ? AND s.value IS NOT NULL AND oi.companyGuid = ? ORDER BY s.value
+  `, [orderGuid, user.companyId]);
   order.allSerials = allSerialRows.map((r) => r.value).join(", ");
   order.serialCount = allSerialRows.length || order.quantity || 1;
 
-  const [tplRows] = await mysqlPool.query("SELECT * FROM warranty_template WHERE id=1");
+  const [tplRows] = await mysqlPool.query("SELECT * FROM warranty_template WHERE companyGuid=? LIMIT 1", [user.companyId]);
   const template = tplRows[0] || {};
 
   const wp = order.warranty || "1 Year";

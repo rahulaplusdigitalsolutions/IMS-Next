@@ -1,19 +1,28 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, authorizeDispatchRequest } from "@/lib/auth";
+import { authenticateRequest, authorizeDispatchRequest, requireCompany, resolveScopedCompanyGuid } from "@/lib/auth";
 import { mapDispatchRow, safeStr, safeDate, normalizeBusinessStatus, normalizeLogisticsStatus, toBit } from "@/lib/helpers";
-import { createDispatchInline, updateDispatchItem, notifyPendingGemUploads } from "@/lib/dispatchHelpers";
+import { createDispatchInline, createNonSerializedDispatchInline, updateDispatchItem, notifyPendingGemUploads } from "@/lib/dispatchHelpers";
 import { createNotification } from "@/lib/notifications";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
+import { broadcastRealtimeEvent } from "@/lib/realtimeEvents";
 
 export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeDispatchRequest(user, "GET", null);
 
   notifyPendingGemUploads(mysqlPool);
 
   const { searchParams } = new URL(request.url);
   const includeDeleted = searchParams.get("includeDeleted") === "true" ? 1 : 0;
+
+  const companyGuid = resolveScopedCompanyGuid(user, request);
+  const c = (alias) => (companyGuid ? `AND ${alias}.companyGuid = ?` : "");
+  const params = companyGuid ? Array(7).fill(companyGuid) : [];
+  if (companyGuid) params.push(companyGuid); // oi.companyGuid, in the WHERE
+  params.push(includeDeleted);
+  if (companyGuid) params.push(companyGuid); // o.companyGuid, in the WHERE
 
   const [rows] = await mysqlPool.query(`
     SELECT
@@ -32,20 +41,20 @@ export const GET = withErrorHandling(async (request) => {
         m.name as modelName, m.company as companyName, m.category as modelCategory,
         p.paymentDate as paymentReceivedDate, p.amount as paymentReceivedAmount, p.utrId
     FROM order_items oi
-    JOIN orders o ON oi.orderGuid = o.guid
-    LEFT JOIN order_logistics ol ON o.guid = ol.orderGuid
-    LEFT JOIN order_installations ins ON o.guid = ins.orderGuid
-    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid
-    LEFT JOIN models m ON s.modelGuid = m.guid
+    JOIN orders o ON oi.orderGuid = o.guid ${c("o")}
+    LEFT JOIN order_logistics ol ON o.guid = ol.orderGuid ${c("ol")}
+    LEFT JOIN order_installations ins ON o.guid = ins.orderGuid ${c("ins")}
+    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid ${c("s")}
+    LEFT JOIN models m ON s.modelGuid = m.guid ${c("m")}
     LEFT JOIN (
         SELECT p1.dispatchGuid, p1.paymentDate, p1.amount, p1.utrId
         FROM payments p1
-        INNER JOIN (SELECT dispatchGuid, MAX(paymentDate) AS maxDate FROM payments GROUP BY dispatchGuid) p2
-        ON p1.dispatchGuid = p2.dispatchGuid AND p1.paymentDate = p2.maxDate
+        INNER JOIN (SELECT dispatchGuid, MAX(paymentDate) AS maxDate FROM payments WHERE 1=1 ${c("payments")} GROUP BY dispatchGuid) p2
+        ON p1.dispatchGuid = p2.dispatchGuid AND p1.paymentDate = p2.maxDate ${c("p1")}
     ) p ON oi.guid = p.dispatchGuid
-    WHERE (? = 1 OR o.isDeleted = 0)
+    WHERE ${companyGuid ? "oi.companyGuid = ? AND" : ""} (? = 1 OR o.isDeleted = 0) ${companyGuid ? "AND o.companyGuid = ?" : ""}
     ORDER BY o.dispatchDate DESC
-  `, [includeDeleted]);
+  `, params);
 
   return NextResponse.json(rows.map(mapDispatchRow));
 });
@@ -53,25 +62,39 @@ export const GET = withErrorHandling(async (request) => {
 export const POST = withErrorHandling(async (request) => {
   const body = await parseJsonBody(request);
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeDispatchRequest(user, "POST", body);
 
   const {
-    serialId, firmName, customer, customerName, address, shippingAddress, user: bodyUser,
+    serialId, modelGuid, itemVariantId, quantity, nonSerialized, firmName, customer, customerName, address, shippingAddress, user: bodyUser,
     sellingPrice, status, orderVerified, gemOrderType, bidNumber, orderDate,
     lastDeliveryDate, gstNumber, contactNumber, altContactNumber, buyerEmail,
     consigneeEmail, consigneeName, contractFilename, installationRequired, installationStatus,
     technicianName, technicianContact, installationCharges, installationRemarks,
     scheduledDate, packagingCost, commission, courierPartner, logisticsDispatchDate,
     trackingId, freightCharges, logisticsStatus, podFilename, ewayBillFilename, remarks, warranty,
-    invoiceNumber, invoiceDate, invoiceFilename, buyerAddress,
+    invoiceNumber, invoiceDate, invoiceFilename, buyerAddress, platform,
   } = body;
+
+  const reqPlatform = firmName || platform;
+  if (reqPlatform) {
+    const [compRows] = await mysqlPool.query("SELECT allowedPlatforms FROM companies WHERE guid = ?", [user.companyId]);
+    if (compRows.length > 0 && compRows[0].allowedPlatforms) {
+      const allowed = typeof compRows[0].allowedPlatforms === 'string' 
+        ? JSON.parse(compRows[0].allowedPlatforms) 
+        : compRows[0].allowedPlatforms;
+      if (Array.isArray(allowed) && !allowed.includes(reqPlatform)) {
+        return NextResponse.json({ message: `Platform "${reqPlatform}" is not allowed for this company.` }, { status: 400 });
+      }
+    }
+  }
 
   const safeCustomerName = safeStr(customerName || customer, "");
 
   if (safeCustomerName && safeCustomerName.toLowerCase() !== "n/a") {
     const [existing] = await mysqlPool.query(
-      "SELECT guid FROM orders WHERE (orderid = ? OR customerName = ?) AND isDeleted = 0 LIMIT 1",
-      [safeCustomerName, safeCustomerName]
+      "SELECT guid FROM orders WHERE (orderid = ? OR customerName = ?) AND isDeleted = 0 AND companyGuid = ? LIMIT 1",
+      [safeCustomerName, safeCustomerName, user.companyId]
     );
     if (existing.length > 0) {
       return NextResponse.json({ message: `Order ID "${safeCustomerName}" already exists in the system.` }, { status: 400 });
@@ -89,8 +112,10 @@ export const POST = withErrorHandling(async (request) => {
   let result, dispatchGuid, orderGuidForUpdate;
   try {
     await connection.beginTransaction();
-    result = await createDispatchInline(connection, {
-      serialId, firmName, customerName: safeCustomerName,
+    const createFn = nonSerialized ? createNonSerializedDispatchInline : createDispatchInline;
+    result = await createFn(connection, {
+      companyGuid: user.companyId,
+      serialId, modelGuid, itemVariantId, quantity, firmName, customerName: safeCustomerName,
       address: safeAddress, shippingAddress: safeShippingAddress,
       user: bodyUser || "System", sellingPrice, status: finalStatus,
       orderVerified: orderVerified || "No", gemOrderType, bidNumber,
@@ -121,8 +146,8 @@ export const POST = withErrorHandling(async (request) => {
       if (invoiceDate) { updateQ += "invoiceDate = ?, "; updateParams.push(safeDate(invoiceDate)); }
       if (invoiceFilename) { updateQ += "invoiceFilename = ?, "; updateParams.push(invoiceFilename); }
       if (updateParams.length > 0) {
-        updateQ = updateQ.slice(0, -2) + " WHERE guid = ?";
-        updateParams.push(orderGuidForUpdate);
+        updateQ = updateQ.slice(0, -2) + " WHERE guid = ? AND companyGuid = ?";
+        updateParams.push(orderGuidForUpdate, user.companyId);
         await connection.query(updateQ, updateParams);
       }
     }
@@ -143,17 +168,20 @@ export const POST = withErrorHandling(async (request) => {
       message: `A new dispatch order ${displayOrderId} has been created by ${bodyUser || "System"}.`,
       type: "success",
       link: "/dispatch",
+      companyGuid: user.companyId,
     });
   } catch (notifErr) {
     console.error("Error sending new order notification:", notifErr);
   }
 
+  broadcastRealtimeEvent(user.companyId, "dispatches");
   return NextResponse.json({ message: "Dispatched successfully", dispatchGuid }, { status: 201 });
 });
 
 export const PUT = withErrorHandling(async (request) => {
   const body = await parseJsonBody(request);
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeDispatchRequest(user, "PUT", body);
 
   const { updates } = body;
@@ -166,19 +194,21 @@ export const PUT = withErrorHandling(async (request) => {
     try {
       const { id, ...fields } = update;
       if (!id) { results.failed.push("unknown"); continue; }
-      await updateDispatchItem(mysqlPool, id, fields, user?.username);
+      await updateDispatchItem(mysqlPool, id, fields, user?.username, user.companyId);
       results.success.push(id);
     } catch (err) {
       console.error("Bulk update item failed:", update?.id, err.message);
       results.failed.push(update.id || "unknown");
     }
   }
+  if (results.success.length > 0) broadcastRealtimeEvent(user.companyId, "dispatches");
   return NextResponse.json({ message: "Bulk update completed", results });
 });
 
 export const DELETE = withErrorHandling(async (request) => {
   const body = await parseJsonBody(request);
   const user = await authenticateRequest(request);
+  requireCompany(user);
   authorizeDispatchRequest(user, "DELETE", body);
 
   const { ids, reason, cancelledBy } = body;
@@ -193,8 +223,8 @@ export const DELETE = withErrorHandling(async (request) => {
     const conn = await mysqlPool.getConnection();
     try {
       const [[item]] = await conn.query(
-        "SELECT oi.guid, oi.orderGuid, oi.serialNumberGuid, s.value as serialValue, o.platform, o.orderid FROM order_items oi LEFT JOIN serials s ON oi.serialNumberGuid=s.guid LEFT JOIN orders o ON oi.orderGuid=o.guid WHERE oi.guid=? LIMIT 1",
-        [id]
+        "SELECT oi.guid, oi.orderGuid, oi.serialNumberGuid, s.value as serialValue, o.platform, o.orderid FROM order_items oi LEFT JOIN serials s ON oi.serialNumberGuid=s.guid AND s.companyGuid=? LEFT JOIN orders o ON oi.orderGuid=o.guid AND o.companyGuid=? WHERE oi.guid=? AND oi.companyGuid=? LIMIT 1",
+        [user.companyId, user.companyId, id, user.companyId]
       );
       if (!item) {
         results.failed.push(id);
@@ -206,23 +236,23 @@ export const DELETE = withErrorHandling(async (request) => {
       await conn.beginTransaction();
 
       if (item.serialNumberGuid) {
-        await conn.query("UPDATE serials SET status='Available' WHERE guid=?", [item.serialNumberGuid]);
+        await conn.query("UPDATE serials SET status='Available' WHERE guid=? AND companyGuid=?", [item.serialNumberGuid, user.companyId]);
       }
 
-      await conn.query("DELETE FROM payments WHERE dispatchGuid=?", [id]);
-      await conn.query("DELETE FROM orderdocuments WHERE dispatchGuid=?", [id]);
-      await conn.query("DELETE FROM order_items WHERE guid=?", [id]);
+      await conn.query("DELETE FROM payments WHERE dispatchGuid=? AND companyGuid=?", [id, user.companyId]);
+      await conn.query("DELETE FROM orderdocuments WHERE dispatchGuid=? AND companyGuid=?", [id, user.companyId]);
+      await conn.query("DELETE FROM order_items WHERE guid=? AND companyGuid=?", [id, user.companyId]);
 
       await conn.query(
-        "INSERT INTO serialmovements (guid, serialNumberGuid, serialValue, dispatchGuid, actionType, status, platform, orderid, createdBy, notes, createdAt) VALUES (UUID(),?,?,?,'Deleted','Available',?,?,?,?,NOW())",
-        [item.serialNumberGuid, item.serialValue || "", id, item.platform || "", item.orderid || "", actor, `Removed from order: ${deleteReason}`]
+        "INSERT INTO serialmovements (guid, serialNumberGuid, serialValue, dispatchGuid, actionType, status, platform, orderid, createdBy, notes, createdAt, companyGuid) VALUES (UUID(),?,?,?,'Deleted','Available',?,?,?,?,NOW(),?)",
+        [item.serialNumberGuid, item.serialValue || "", id, item.platform || "", item.orderid || "", actor, `Removed from order: ${deleteReason}`, user.companyId]
       );
 
-      const [[{ remaining }]] = await conn.query("SELECT COUNT(*) as remaining FROM order_items WHERE orderGuid=?", [item.orderGuid]);
+      const [[{ remaining }]] = await conn.query("SELECT COUNT(*) as remaining FROM order_items WHERE orderGuid=? AND companyGuid=?", [item.orderGuid, user.companyId]);
       if (remaining === 0) {
         await conn.query(
-          "UPDATE orders SET isDeleted=1, status='Order Cancelled', cancellationReason=?, cancelledBy=?, cancelledAt=NOW() WHERE guid=?",
-          [deleteReason, actor, item.orderGuid]
+          "UPDATE orders SET isDeleted=1, status='Order Cancelled', cancellationReason=?, cancelledBy=?, cancelledAt=NOW() WHERE guid=? AND companyGuid=?",
+          [deleteReason, actor, item.orderGuid, user.companyId]
         );
       }
 
@@ -236,5 +266,6 @@ export const DELETE = withErrorHandling(async (request) => {
       conn.release();
     }
   }
+  if (results.success.length > 0) broadcastRealtimeEvent(user.companyId, "dispatches");
   return NextResponse.json({ message: "Deletion completed", results });
 });
