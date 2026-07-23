@@ -8,6 +8,7 @@ import { AppDataProvider, useAppData } from "@/lib/client/AppDataContext";
 import Sidebar from "@/components/common/Sidebar";
 import GlobalSearchModal from "@/components/common/GlobalSearchModal";
 import { CompanyProvider, useCompany } from "@/lib/client/CompanyContext";
+import { ThemeToggle } from "@/components/common/ThemeToggle";
 
 // Minimal authenticated shell, ported from Frontend4/src/components/AdminLayout.jsx's
 // auth-guard + top-level chrome. The full sidebar (35 nav items across
@@ -66,6 +67,7 @@ function AppLayoutInner({ children, currentUser, handleLogout, router, pathname,
               {now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
             </span>
           )}
+          <ThemeToggle />
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl">
             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center">
               <User size={14} className="text-indigo-600" />

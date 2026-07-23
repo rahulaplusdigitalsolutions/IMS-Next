@@ -152,7 +152,7 @@ const DeadlineBadge = ({ lastDeliveryDate, status }) => {
   );
 };
 
-const StatCard = ({ icon: Icon, label, value, color, subText, onClick }) => {
+const StatCard = ({ icon: Icon, label, value, color, subText, onClick, className = "" }) => {
   const textColorClasses = color.split(' ').find(c => c.startsWith('text-')) || 'text-slate-600';
   const bgColorClasses = color.split(' ').find(c => c.startsWith('bg-')) || 'bg-slate-50';
   const borderColor = textColorClasses.replace('text-', 'border-').replace(/600|700|800/, '200').replace(/500/, '100');
@@ -160,7 +160,7 @@ const StatCard = ({ icon: Icon, label, value, color, subText, onClick }) => {
   return (
     <div
       onClick={onClick}
-      className={`bg-white p-3 sm:p-4 rounded-2xl border ${borderColor} shadow-sm relative overflow-hidden transition-all duration-300 flex items-center gap-3 sm:gap-4 w-full ${onClick ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-md" : "hover:shadow-md"}`}
+      className={`bg-white p-3 sm:p-4 rounded-2xl border ${borderColor} shadow-sm relative overflow-hidden transition-all duration-300 flex items-center gap-3 sm:gap-4 w-full ${onClick ? "cursor-pointer hover:-translate-y-0.5 hover:shadow-md" : "hover:shadow-md"} ${className}`}
     >
       <div className="absolute -right-3 -bottom-3 opacity-[0.06] pointer-events-none transform rotate-12">
         <Icon size={80} className={textColorClasses} />
@@ -865,7 +865,7 @@ export default function Dispatch({
   const currentTabTheme = TAB_THEMES[activeTabView] || TAB_THEMES.active;
 
   return (
-    <div className="space-y-6 relative pb-20">
+    <div className="min-h-screen bg-slate-50 p-4 md:p-6 pb-24 space-y-6 relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -886,10 +886,10 @@ export default function Dispatch({
         <StatCard icon={CheckCircle} label="Delivered" value={dashboardStats.deliveredCount} color="bg-emerald-50 text-emerald-600" />
         <StatCard icon={RotateCcw} label="RTO" value={dashboardStats.rtoCount} color="bg-red-50 text-red-600" />
         {isAdmin && (
-            <StatCard icon={Banknote} label=" Charges" value={`₹${dashboardStats.totalFreight.toLocaleString("en-IN")}`} color="bg-purple-50 text-purple-600" subText=" Freight Cost" />
+            <StatCard className="col-span-2 md:col-span-2" icon={Banknote} label=" Charges" value={`₹${dashboardStats.totalFreight.toLocaleString("en-IN")}`} color="bg-purple-50 text-purple-600" subText=" Freight Cost" />
         )}
         {(isAdmin || isAccountant || isSupervisor) && (
-            <StatCard icon={Package} label="Cost" value={`₹${dashboardStats.totalPackagingCost.toLocaleString("en-IN")}`} color="bg-pink-50 text-pink-600" subText=" Packaging Cost" />
+            <StatCard className="col-span-2 md:col-span-2" icon={Package} label="Cost" value={`₹${dashboardStats.totalPackagingCost.toLocaleString("en-IN")}`} color="bg-pink-50 text-pink-600" subText=" Packaging Cost" />
         )}
         {isAdmin && (
             <div className="col-span-full flex justify-end mt-1">

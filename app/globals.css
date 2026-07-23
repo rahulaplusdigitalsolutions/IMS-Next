@@ -159,3 +159,20 @@ tr.priority-blue:hover { background-color: #bfdbfe !important; }
 tr.priority-indigo:hover { background-color: #c7d2fe !important; }
 tr.priority-purple:hover { background-color: #e9d5ff !important; }
 
+/* Dark Mode Global Fallback Filter */
+html.dark {
+  filter: invert(1) hue-rotate(180deg);
+  background-color: #111827; /* Matches tailwind slate-900 roughly after invert */
+}
+
+/* Re-invert media so images and videos look normal */
+html.dark img:not(.logo-invert),
+html.dark video,
+html.dark svg {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Fix shadows and some text blending in dark mode */
+html.dark * {
+  box-shadow: none !important;
+}

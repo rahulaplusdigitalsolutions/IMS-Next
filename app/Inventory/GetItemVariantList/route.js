@@ -21,7 +21,7 @@ export const GET = withErrorHandling(async (request) => {
   const searchParam = search ? [`%${search}%`] : [];
 
   const [[categoryInfo]] = await mysqlPool.query(
-    `SELECT IFNULL(c.showMrp, 0) as showMrp, IFNULL(i.isTrackable, 0) as isTrackable
+    `SELECT IFNULL(c.showMrp, 0) as showMrp, IFNULL(i.isTrackable, 0) as isTrackable, c.categoryName
      FROM inventoryitemmaster i LEFT JOIN inventorycategorymaster c ON i.categoryId = c.categoryId
      WHERE i.itemId = ? AND i.companyGuid = ?`,
     [itemId, user.companyId]
@@ -32,6 +32,9 @@ export const GET = withErrorHandling(async (request) => {
   // update inventoryvariantstock.availablePCS, so it drifts stale for these).
   const [rows] = await mysqlPool.query(
     `SELECT v.itemVariantId, v.variantName as variantCode, v.sellingPrice as mrp,
+            v.colorType, v.printerType, v.cpu, v.ram, v.ssdHdd,
+            v.screenSize, v.resolution, v.panelType, v.refreshRate,
+            v.packagingCost, v.packageLength, v.packageWidth, v.packageHeight, v.packageWeight,
             IFNULL(s.avgPurchaseRate, 0) as avgPurchaseRate,
             ${isTrackable ? "IFNULL(sc.availableCount, 0)" : "IFNULL(s.availablePCS, 0)"} as availablePCS
      FROM inventoryitemvariant v
@@ -50,5 +53,5 @@ export const GET = withErrorHandling(async (request) => {
     [itemId, user.companyId, ...searchParam]
   );
 
-  return NextResponse.json({ message: "Success", data: rows, total, showMrp: !!categoryInfo?.showMrp });
+  return NextResponse.json({ message: "Success", data: rows, total, showMrp: !!categoryInfo?.showMrp, categoryName: categoryInfo?.categoryName || "" });
 });

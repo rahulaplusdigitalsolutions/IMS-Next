@@ -328,7 +328,7 @@ export default function ItemMaster() {
                   <td className="py-3 px-6">
                     <div className="flex items-center justify-center gap-2">
                       <button
-                        onClick={() => router.push(`/itemVariant?itemId=${item.itemId}&itemName=${encodeURIComponent(item.itemName)}`)}
+                        onClick={() => router.push(`/itemVariant?itemId=${item.itemId}&itemName=${encodeURIComponent(item.itemName)}&categoryName=${encodeURIComponent(item.categoryName || "")}`)}
                         className="p-2 text-emerald-600 hover:bg-emerald-100 rounded-lg tooltip"
                         title="Manage Variants"
                       >

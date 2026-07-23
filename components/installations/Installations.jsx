@@ -21,7 +21,7 @@ function getBatchKey(item) {
     const bid = String(item.bidNumber || "").trim();
     if (bid) return `${firm}__${bid}`;
     if (customer) return `${firm}__${customer}`;
-    return `single__${item.guid}`;
+    return `single__${item.id}`;
 }
 
 // ── Toast Notification ──
@@ -258,7 +258,7 @@ const BatchCard = ({ batch, selected, onSelect, onView, onStatusChange, selectio
                 <p className="text-xs text-slate-500 mb-3 flex items-center gap-1">
                     <Printer size={10} className="text-slate-400 flex-shrink-0" />
                     <span className="truncate">{isBulk ? `${batch.items.length} units • ${rep.modelName}` : rep.modelName}</span>
-                    {rep.modelCompany && <><span className="text-slate-300">•</span><span className="text-slate-400">{rep.modelCompany}</span></>}
+                    {rep.companyName && <><span className="text-slate-300">•</span><span className="text-slate-400">{rep.companyName}</span></>}
                 </p>
 
                 {isBulk && (
@@ -356,7 +356,7 @@ const BatchRow = ({ batch, selected, onSelect, onView, selectionMode, canManage 
             </div>
             <div className="flex-1 min-w-0">
                 <h4 className="font-semibold text-slate-800 text-sm truncate">{rep.firmName || rep.customerName}</h4>
-                <p className="text-xs text-slate-500 truncate">{isBulk ? `${batch.items.length} units • ` : ""}{rep.modelName} • {rep.modelCompany}</p>
+                <p className="text-xs text-slate-500 truncate">{isBulk ? `${batch.items.length} units • ` : ""}{rep.modelName} • {rep.companyName}</p>
             </div>
             <div className="hidden md:flex items-center gap-1.5 min-w-[130px]">
                 {rep.technicianName ? (
@@ -411,7 +411,7 @@ const BatchTable = ({ batches, selectedIds, onSelect, onView, selectionMode, can
                                             : <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded"><Box size={9} />Single</span>}
                                     </td>
                                     <td className="px-3 py-2"><p className="font-semibold text-slate-800">{rep.firmName || rep.customerName}</p>{rep.firmName && rep.customerName && <p className="text-[10px] text-slate-500">{rep.customerName}</p>}</td>
-                                    <td className="px-3 py-2 hidden md:table-cell"><p className="text-slate-600">{rep.modelName}</p><p className="text-[10px] text-slate-400">{rep.modelCompany}</p></td>
+                                    <td className="px-3 py-2 hidden md:table-cell"><p className="text-slate-600">{rep.modelName}</p><p className="text-[10px] text-slate-400">{rep.companyName}</p></td>
                                     <td className="px-3 py-2 text-center"><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${isBulk ? "bg-violet-50 text-violet-700" : "bg-slate-50 text-slate-600"}`}>{batch.items.length}</span></td>
                                     <td className="px-3 py-2 hidden lg:table-cell">
                                         {rep.technicianName ? <div className="flex items-center gap-1"><span className="text-slate-600">{rep.technicianName}</span>{rep.technicianContact && <ContactButtons phone={rep.technicianContact} name={rep.technicianName} />}</div> : <span className="text-slate-400 italic">—</span>}
@@ -576,7 +576,7 @@ const BatchDetailModal = ({ batch, isOpen, onClose, onSave, saving, notify, canM
                                     <h3 className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2 flex items-center gap-1"><Printer size={10} /> Product</h3>
                                     <div className="space-y-2">
                                         <InfoRow label="Model" value={rep.modelName} icon={Printer} />
-                                        <InfoRow label="Company" value={rep.modelCompany} icon={Building2} />
+                                        <InfoRow label="Company" value={rep.companyName} icon={Building2} />
                                         {!isBulk && <InfoRow label="Serial" value={rep.serialNumber || rep.serialValue} icon={Hash} mono onCopy={() => copyText(rep.serialNumber || rep.serialValue, "Serial")} />}
                                         <InfoRow label="Dispatch" value={rep.dispatchDate ? format(new Date(rep.dispatchDate), "dd MMM yyyy") : null} icon={Truck} />
                                         {isBulk && <div className="flex items-start gap-2"><Layers size={12} className="text-indigo-400 mt-0.5" /><div><p className="text-[9px] text-indigo-400 uppercase tracking-wider">Quantity</p><p className="text-xs text-indigo-700 font-bold">{batch.items.length} Units</p></div></div>}
@@ -837,7 +837,7 @@ export default function Installations({ installations: propInstallations, stats:
             const matchSearch = batch.items.some(item =>
                 item.firmName?.toLowerCase().includes(q) || item.customerName?.toLowerCase().includes(q) ||
                 item.modelName?.toLowerCase().includes(q) || item.technicianName?.toLowerCase().includes(q) ||
-                item.serialNumber?.toLowerCase().includes(q) || item.serialValue?.toLowerCase().includes(q) || String(item.guid).includes(q)
+                item.serialNumber?.toLowerCase().includes(q) || item.serialValue?.toLowerCase().includes(q) || String(item.id).includes(q)
             );
             const matchStatus = statusFilter === "All" || batch.items.some(item => item.installationStatus === statusFilter);
             return matchSearch && matchStatus;
@@ -862,7 +862,7 @@ export default function Installations({ installations: propInstallations, stats:
         if (!batch) return;
         setSaving(true);
         try {
-            await Promise.all(batch.items.map(item => printerService.updateInstallation(item.guid, formData)));
+            await Promise.all(batch.items.map(item => printerService.updateInstallation(item.id, formData)));
             notify(`${batch.items.length > 1 ? 'Batch' : 'Installation'} updated!`, "success");
             await refreshInstallations();
             closeModal();
@@ -871,7 +871,7 @@ export default function Installations({ installations: propInstallations, stats:
     };
 
     const handleQuickStatus = async (item, status) => {
-        try { await printerService.updateInstallation(item.guid, { installationStatus: status }); notify(`Status → ${status}`, "success"); loadData(); }
+        try { await printerService.updateInstallation(item.id, { installationStatus: status }); notify(`Status → ${status}`, "success"); loadData(); }
         catch { notify("Update failed", "error"); }
     };
 

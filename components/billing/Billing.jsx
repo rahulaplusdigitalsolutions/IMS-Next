@@ -100,10 +100,18 @@ export default function Billing({
     };
 
     // Helper to get Serial/Model names
-    const getDetails = (serialId) => {
+    const getDetails = (item) => {
+        const serialId = item.serialGuid || item.serialNumberId;
         const s = serials.find((x) => (x.guid || x.id) === serialId);
-        const m = s ? models.find((x) => (x.guid || x.id) === s.modelGuid) : null;
-        return { serial: s?.value || "N/A", model: m?.name || "-", company: m?.company || "-" };
+        
+        const targetModelId = s?.modelGuid || s?.modelId || item.modelGuid || item.modelId;
+        const m = targetModelId ? models.find((x) => (x.guid || x.id) === targetModelId) : null;
+        
+        const serialVal = item.serialValue || item.serialNumber || s?.serialNumber || s?.value || "N/A";
+        const modelName = item.modelName || item.model || m?.name || m?.modelName || "-";
+        const companyName = item.company || m?.company || "-";
+
+        return { serial: serialVal, model: modelName, company: companyName };
     };
 
     // Filter logic based on Active Tab
@@ -142,8 +150,7 @@ export default function Billing({
 
         const filtered = billingDispatches.filter(d => {
             if (!d) return false;
-            const s = serials.find((x) => (x.guid || x.id) === (d.serialGuid || d.serialNumberId));
-            const serialVal = s ? s.value : "N/A";
+            const { serial: serialVal } = getDetails(d);
 
             const firm = String(d.firmName || "").toLowerCase();
             const customer = String(d.customerName || d.customer || "").toLowerCase();
@@ -281,45 +288,10 @@ export default function Billing({
         });
     };
 
-    // Reads a File as base64 and asks the AI parser to extract fields from it
-    const parseFileWithAI = async (file) => {
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
-        const res = await axios.post(`${API_BASE_URL}/api/ai/parse-file`, {
-            fileBase64: base64,
-            mimeType: file.type
-        }, { headers: { Authorization: `Bearer ${sessionStorage.getItem("pt_auth_token")}` } });
-        return res.data || {};
-    };
-
     const handleFileChange = (e) => {
         if (e.target.files && e.target.files.length > 0) {
             const file = e.target.files[0];
             setEditForm(prev => ({ ...prev, invoiceFile: file }));
-
-            // Auto-fetch Invoice No. / Invoice Date from the uploaded invoice
-            const session = editSessionRef.current;
-            setAiParsingInvoice(true);
-            parseFileWithAI(file).then((result) => {
-                if (editSessionRef.current !== session) return; // a different order is open now — discard
-                setEditForm(prev => ({
-                    ...prev,
-                    invoiceNo: !prev.invoiceNo && result.invoiceNo ? result.invoiceNo : prev.invoiceNo,
-                    invoiceDate: (invoiceDateIsDefault || !prev.invoiceDate) && result.invoiceDate ? result.invoiceDate : prev.invoiceDate
-                }));
-                if (result.invoiceDate) setInvoiceDateIsDefault(false);
-            }).catch((err) => {
-                console.warn("Invoice AI auto-fetch failed:", err.message);
-                if (editSessionRef.current === session) {
-                    alert("⚠️ Could not auto-fetch invoice details: " + (err.response?.data?.message || err.message));
-                }
-            }).finally(() => {
-                if (editSessionRef.current === session) setAiParsingInvoice(false);
-            });
         }
     };
 
@@ -346,26 +318,6 @@ export default function Billing({
             }
         }
         setEditForm(prev => ({ ...prev, ewayBillFile: file || null }));
-
-        // Auto-fetch E-Way Bill number from the uploaded document
-        if (file) {
-            const session = editSessionRef.current;
-            setAiParsingEwayBill(true);
-            parseFileWithAI(file).then((result) => {
-                if (editSessionRef.current !== session) return; // a different order is open now — discard
-                setEditForm(prev => ({
-                    ...prev,
-                    ewayBill: !prev.ewayBill && result.ewayBillNumber ? result.ewayBillNumber : prev.ewayBill
-                }));
-            }).catch((err) => {
-                console.warn("E-Way Bill AI auto-fetch failed:", err.message);
-                if (editSessionRef.current === session) {
-                    alert("⚠️ Could not auto-fetch e-way bill details: " + (err.response?.data?.message || err.message));
-                }
-            }).finally(() => {
-                if (editSessionRef.current === session) setAiParsingEwayBill(false);
-            });
-        }
     };
 
     // ✅ UPDATED: Save Invoice Logic — with E-Way Bill upload + "Send for Packing"
@@ -584,7 +536,7 @@ export default function Billing({
     };
 
     return (
-        <div className="space-y-5 relative pb-20">
+        <div className="min-h-screen bg-slate-50 p-4 md:p-6 pb-24 space-y-5 relative">
             {/* Header */}
             <div className="relative">
                 <div className="absolute -top-4 -left-4 w-48 h-48 bg-gradient-to-br from-indigo-500/10 to-blue-500/10 rounded-full blur-3xl -z-10" />
@@ -726,7 +678,7 @@ export default function Billing({
                                 currentDispatches.map((group, index) => {
                                     const item = group[0];
                                     const isMultiple = group.length > 1;
-                                    const { model } = getDetails(item.serialGuid || item.serialNumberId);
+                                    const { model } = getDetails(item);
                                     const totalAmount = group.reduce((sum, i) => sum + (Number(i.sellingPrice) || 0), 0);
 
                                     // ✅ NEW: Show E-Way Bill indicator for high-value orders
@@ -1211,7 +1163,7 @@ export default function Billing({
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
                                             {viewingOrder.map((item, idx) => {
-                                                const { model, serial } = getDetails(item.serialGuid || item.serialNumberId);
+                                                const { model, serial } = getDetails(item);
                                                 return (
                                                     <tr key={idx} className="hover:bg-slate-50/50">
                                                         <td className="px-4 py-3 text-slate-400 text-xs">{idx + 1}</td>

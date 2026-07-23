@@ -17,6 +17,60 @@ const ItemVariant = () => {
   const [variantCode, setVariantCode] = useState("");
   const [mrp, setMrp] = useState("");
   const [variants, setVariants] = useState([]);
+  const [categoryName, setCategoryName] = useState(searchParams.get("categoryName") || "");
+
+  // Which spec fields to show is decided by category name — same buckets
+  // used everywhere else in the app (Monitor / PC / Printer heuristics).
+  const categoryBucket = (() => {
+    const c = (categoryName || "").toLowerCase();
+    if (c.includes("monitor") || c.includes("display") || c.includes("screen")) return "Monitor";
+    if (c.includes("pc") || c.includes("computer") || c.includes("laptop") || c.includes("computing")
+      || c.includes("aio") || c.includes("all in one") || c.includes("all-in-one")
+      || c.includes("desktop") || c.includes("tower")) return "PC";
+    if (c.includes("printer") || c.includes("copier") || c.includes("mfp")) return "Printer";
+    return "Other";
+  })();
+
+  const [colorType, setColorType] = useState("");
+  const [printerType, setPrinterType] = useState("");
+  const [cpu, setCpu] = useState("");
+  const [ram, setRam] = useState("");
+  const [ssdHdd, setSsdHdd] = useState("");
+  const [screenSize, setScreenSize] = useState("");
+  const [resolution, setResolution] = useState("");
+  const [panelType, setPanelType] = useState("");
+  const [refreshRate, setRefreshRate] = useState("");
+  const [packagingCost, setPackagingCost] = useState("");
+  const [packageLength, setPackageLength] = useState("");
+  const [packageWidth, setPackageWidth] = useState("");
+  const [packageHeight, setPackageHeight] = useState("");
+  const [packageWeight, setPackageWeight] = useState("");
+
+  const [colorTypeOptions, setColorTypeOptions] = useState([]);
+  const [printerTypeOptions, setPrinterTypeOptions] = useState([]);
+
+  useEffect(() => {
+    const fetchTypeOptions = async () => {
+      try {
+        const [colorRes, printerRes] = await Promise.all([
+          axios.get(`${API_BASE_URL}/Inventory/GetColorTypeList`, { headers: getHeaders() }),
+          axios.get(`${API_BASE_URL}/Inventory/GetPrinterTypeList`, { headers: getHeaders() }),
+        ]);
+        setColorTypeOptions(colorRes.data?.data || []);
+        setPrinterTypeOptions(printerRes.data?.data || []);
+      } catch (error) {
+        console.error("Failed to load color/printer type options", error);
+      }
+    };
+    fetchTypeOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const resetSpecs = () => {
+    setColorType(""); setPrinterType(""); setCpu(""); setRam(""); setSsdHdd("");
+    setScreenSize(""); setResolution(""); setPanelType(""); setRefreshRate("");
+    setPackagingCost(""); setPackageLength(""); setPackageWidth(""); setPackageHeight(""); setPackageWeight("");
+  };
   
   const [loading, setLoading] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
@@ -160,6 +214,7 @@ const ItemVariant = () => {
       setVariants(response.data?.data || []);
       setTotalRecords(response.data?.total || 0);
       setShowMrp(!!response.data?.showMrp);
+      if (response.data?.categoryName) setCategoryName(response.data.categoryName);
     } catch (error) {
       console.error("Failed to load variants", error);
       setVariants([]);
@@ -211,6 +266,20 @@ const ItemVariant = () => {
         ItemId: rawItemId,
         VariantCode: variantCode.trim(),
         Mrp: mrp !== "" ? Number(mrp) : null,
+        ColorType: colorType || null,
+        PrinterType: printerType || null,
+        Cpu: cpu || null,
+        Ram: ram || null,
+        SsdHdd: ssdHdd || null,
+        ScreenSize: screenSize || null,
+        Resolution: resolution || null,
+        PanelType: panelType || null,
+        RefreshRate: refreshRate || null,
+        PackagingCost: packagingCost !== "" ? Number(packagingCost) : null,
+        PackageLength: packageLength !== "" ? Number(packageLength) : null,
+        PackageWidth: packageWidth !== "" ? Number(packageWidth) : null,
+        PackageHeight: packageHeight !== "" ? Number(packageHeight) : null,
+        PackageWeight: packageWeight !== "" ? Number(packageWeight) : null,
       };
 
       const res = await axios.post(
@@ -224,6 +293,7 @@ const ItemVariant = () => {
         setVariantCode("");
         setMrp("");
         setItemVariantId("");
+        resetSpecs();
         fetchVariants();
       } else {
         Swal.fire("Error", res.data?.message || "Failed to save variant", "error");
@@ -240,6 +310,20 @@ const ItemVariant = () => {
     setItemVariantId(v.itemVariantId);
     setVariantCode(v.variantCode || "");
     setMrp(v.mrp != null ? String(v.mrp) : "");
+    setColorType(v.colorType || "");
+    setPrinterType(v.printerType || "");
+    setCpu(v.cpu || "");
+    setRam(v.ram || "");
+    setSsdHdd(v.ssdHdd || "");
+    setScreenSize(v.screenSize || "");
+    setResolution(v.resolution || "");
+    setPanelType(v.panelType || "");
+    setRefreshRate(v.refreshRate || "");
+    setPackagingCost(v.packagingCost != null ? String(v.packagingCost) : "");
+    setPackageLength(v.packageLength != null ? String(v.packageLength) : "");
+    setPackageWidth(v.packageWidth != null ? String(v.packageWidth) : "");
+    setPackageHeight(v.packageHeight != null ? String(v.packageHeight) : "");
+    setPackageWeight(v.packageWeight != null ? String(v.packageWeight) : "");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -247,6 +331,7 @@ const ItemVariant = () => {
     setItemVariantId("");
     setVariantCode("");
     setMrp("");
+    resetSpecs();
   };
 
   const handleDeleteVariant = (id) => {
@@ -365,6 +450,107 @@ const ItemVariant = () => {
             </button>
           </div>
         </div>
+
+        {categoryBucket !== "Other" && (
+          <div className="mt-6 pt-6 border-t border-slate-200">
+            <p className="text-xs font-bold text-slate-500 uppercase mb-4">Specifications ({categoryBucket})</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {categoryBucket === "Printer" && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                      Color Type <a href="/colorTypeMaster" target="_blank" rel="noreferrer" className="text-indigo-500 normal-case font-normal hover:underline">(manage options)</a>
+                    </label>
+                    <select value={colorType} onChange={(e) => setColorType(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100">
+                      <option value="">-- Select --</option>
+                      {colorTypeOptions.map((o) => (
+                        <option key={o.colorTypeId} value={o.colorTypeName}>{o.colorTypeName}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
+                      Printer Type <a href="/printerTypeMaster" target="_blank" rel="noreferrer" className="text-indigo-500 normal-case font-normal hover:underline">(manage options)</a>
+                    </label>
+                    <select value={printerType} onChange={(e) => setPrinterType(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100">
+                      <option value="">-- Select --</option>
+                      {printerTypeOptions.map((o) => (
+                        <option key={o.printerTypeId} value={o.printerTypeName}>{o.printerTypeName}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {categoryBucket === "PC" && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">CPU / Processor</label>
+                    <input type="text" value={cpu} onChange={(e) => setCpu(e.target.value)} placeholder="e.g. Intel i5 12th Gen" className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">RAM</label>
+                    <input type="text" value={ram} onChange={(e) => setRam(e.target.value)} placeholder="e.g. 8GB DDR4" className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">SSD / HDD</label>
+                    <input type="text" value={ssdHdd} onChange={(e) => setSsdHdd(e.target.value)} placeholder="e.g. 512GB SSD" className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </div>
+                </>
+              )}
+
+              {categoryBucket === "Monitor" && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Screen Size</label>
+                    <input type="text" value={screenSize} onChange={(e) => setScreenSize(e.target.value)} placeholder='e.g. 24"' className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Resolution</label>
+                    <input type="text" value={resolution} onChange={(e) => setResolution(e.target.value)} placeholder="e.g. 1920x1080" className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Panel Type</label>
+                    <input type="text" value={panelType} onChange={(e) => setPanelType(e.target.value)} placeholder="e.g. IPS" className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Refresh Rate</label>
+                    <input type="text" value={refreshRate} onChange={(e) => setRefreshRate(e.target.value)} placeholder="e.g. 75Hz" className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </div>
+                </>
+              )}
+
+              {categoryBucket !== "Printer" && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Packaging Cost</label>
+                    <input type="number" min="0" value={packagingCost} onChange={(e) => setPackagingCost(e.target.value)} placeholder="0.00" className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                  </div>
+                  {categoryBucket !== "Monitor" && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Package Length (cm)</label>
+                        <input type="number" min="0" value={packageLength} onChange={(e) => setPackageLength(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Package Width (cm)</label>
+                        <input type="number" min="0" value={packageWidth} onChange={(e) => setPackageWidth(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Package Height (cm)</label>
+                        <input type="number" min="0" value={packageHeight} onChange={(e) => setPackageHeight(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Package Weight (kg)</label>
+                        <input type="number" min="0" value={packageWeight} onChange={(e) => setPackageWeight(e.target.value)} className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-100" />
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mb-4">

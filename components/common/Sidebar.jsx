@@ -29,7 +29,9 @@ import {
   Building2,
   UploadCloud,
   Ban,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Palette,
+  Printer
 } from "lucide-react";
 
 export default function Sidebar({ currentUser, isAdmin }) {
@@ -57,6 +59,8 @@ export default function Sidebar({ currentUser, isAdmin }) {
     { id: "vendorMaster", label: "Vendor Master", icon: UsersIcon, group: "masters" },
     { id: "categoryBrandMapping", label: "Cate-Brand Mapping", icon: FileText, group: "masters" },
     { id: "unitMaster", label: "Unit Master", icon: Ruler, group: "masters" },
+    { id: "colorTypeMaster", label: "Color Type Master", icon: Palette, group: "masters" },
+    { id: "printerTypeMaster", label: "Printer Type Master", icon: Printer, group: "masters" },
     { id: "itemMaster", label: "Item Master", icon: Package, group: "masters" },
     { id: "comboMaster", label: "Combos Master", icon: Layers, group: "masters" },
     { id: "godownMaster", label: "Godown Master", icon: Warehouse, group: "masters" },
@@ -86,7 +90,7 @@ export default function Sidebar({ currentUser, isAdmin }) {
   ];
 
   if (!isSidebarVisible) {
-    const mastersGroup = ["companyMaster","categoryMaster","brandMaster","vendorMaster","categoryBrandMapping","unitMaster","itemMaster","comboMaster","godownMaster","fbfFbaMaster"];
+    const mastersGroup = ["companyMaster","categoryMaster","brandMaster","vendorMaster","categoryBrandMapping","unitMaster","colorTypeMaster","printerTypeMaster","itemMaster","comboMaster","godownMaster","fbfFbaMaster"];
     const inventoryGroup = ["currentStock","stockIn","fbfFbaManagement","companyTransfer","godownTransfer"];
     const ordersGroup = ["orderTracking","dispatch","stockOut"];
     const operationsGroup = ["returns","damaged"];
@@ -100,7 +104,7 @@ export default function Sidebar({ currentUser, isAdmin }) {
     return (
       <aside className="bg-white border-r flex flex-col items-center py-3 w-16 transition-all">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/aplus.png" alt="Logo" className="h-8 w-auto object-contain mb-3" />
+        <img src="/aplus.png" alt="Logo" className="h-8 w-auto object-contain mb-3 logo-invert" />
         <nav className="flex-1 flex flex-col items-center gap-1.5 overflow-y-auto w-full px-2 py-1">
           <button
             onClick={() => router.push("/")}
@@ -190,7 +194,7 @@ export default function Sidebar({ currentUser, isAdmin }) {
       <aside className="bg-white border-r flex flex-col w-64 h-full shrink-0 animate-sidebar-in transition-all">
         <div className="p-4 flex items-center justify-between border-b border-slate-100">
           <div className="flex flex-col items-center justify-center flex-1">
-            <img src="/aplus.png" alt="Company Logo" className="h-12 w-auto object-contain" />
+            <img src="/aplus.png" alt="Company Logo" className="h-12 w-auto object-contain logo-invert" />
           </div>
           <button onClick={() => setIsSidebarVisible(false)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400 border border-slate-200 shadow-sm">
             <HideIcon size={18} />
@@ -244,7 +248,7 @@ export default function Sidebar({ currentUser, isAdmin }) {
       <div className="p-4 flex items-center justify-between border-b border-slate-100">
         <div className="flex flex-col items-center justify-center flex-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/aplus.png" alt="Company Logo" className="h-12 w-auto object-contain" />
+          <img src="/aplus.png" alt="Company Logo" className="h-12 w-auto object-contain logo-invert" />
         </div>
         <button onClick={() => setIsSidebarVisible(false)} className="p-1 hover:bg-slate-100 rounded-full text-slate-400 border border-slate-200 shadow-sm">
           <HideIcon size={18} />
