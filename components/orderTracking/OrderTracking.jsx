@@ -70,9 +70,17 @@ export default function OrderTracking({
   const handleConfirmDraft = async (payload) => {
     const orderGuid = confirmDraftBatch.items[0]?._orderId || confirmDraftBatch.items[0]?.orderId || confirmDraftBatch.id;
     await ordersService.confirmDraftOrder(orderGuid, payload);
+    // Optimistic update — confirm replaces the draft's order_items rows with
+    // new ones server-side, but until onRefresh's fetch lands, localOrders
+    // still holds the old rows with status "Draft". Without this, the batch
+    // stays stuck under the Draft tab (and missing from Active) until the
+    // background refresh happens to complete.
+    setLocalOrders((prev) =>
+      prev.map((o) => (String(o._orderId) === String(orderGuid) || String(o.id) === String(orderGuid)) ? { ...o, status: "Pending" } : o)
+    );
     setConfirmDraftBatch(null);
     closeModal();
-    if (onRefresh) onRefresh();
+    if (onRefresh) await onRefresh();
     showToast("Order confirmed and moved to active orders.", "success");
   };
   const [statusFilter, setStatusFilter] = useState("All");
@@ -114,7 +122,7 @@ export default function OrderTracking({
   const [uploadingExtraDoc, setUploadingExtraDoc] = useState(false);
   const extraDocInputRef = React.useRef(null);
   const [localOrders, setLocalOrders] = useState(orders);
-  const canEditPayment = isAdmin || currentUser?.role === "Accountant";
+  const canEditPayment = isAdmin || !!currentUser?.allow_edit_billing;
   const [localModels, setLocalModels] = useState(Array.isArray(models) ? models : []);
   const [localSerials, setLocalSerials] = useState(Array.isArray(serials) ? serials : []);
   const [loadingDispatchData, setLoadingDispatchData] = useState(false);
@@ -1718,6 +1726,19 @@ export default function OrderTracking({
                             {(batch.holdReason || batch.items[0]?.reason) && (
                               <span className="text-[10px] text-yellow-600 line-clamp-1 max-w-[120px]">
                                 {batch.holdReason || batch.items[0]?.reason}
+                              </span>
+                            )}
+                          </div>
+                        ) : activeTab === "draft" ? (
+                          <div className="flex flex-col gap-1 items-start">
+                            <StatusBadge status={displayStatus} size="small" />
+                            {batch.invoiceFilename ? (
+                              <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-0.5">
+                                <CheckCircle size={8} /> Bill Uploaded
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-medium bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 flex items-center gap-0.5">
+                                Bill Pending
                               </span>
                             )}
                           </div>

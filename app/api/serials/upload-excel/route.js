@@ -52,10 +52,10 @@ export const POST = withErrorHandling(async (request) => {
         const landingPrice = isNaN(cleanLp) ? 0 : cleanLp;
         const landingPriceReason = reasonValue ? String(reasonValue).trim() : null;
 
-        const [mCheck] = await mysqlPool.query("SELECT guid as id, mrp, name FROM models WHERE guid=? AND isDeleted=0 AND companyGuid=?", [modelId, user.companyId]);
+        const [mCheck] = await mysqlPool.query("SELECT itemVariantId as id, sellingPrice as mrp, variantName as name FROM inventoryitemvariant WHERE itemVariantId=? AND isDeleted=0 AND companyGuid=?", [modelId, user.companyId]);
         if (!mCheck.length) { results.failed.push({ row: rowNum, serialNumber: trimmedSerial, reason: `Model ID ${modelId} not found` }); continue; }
 
-        const [sCheck] = await mysqlPool.query("SELECT guid FROM serials WHERE value=? AND companyGuid=?", [trimmedSerial, user.companyId]);
+        const [sCheck] = await mysqlPool.query("SELECT guid FROM inventorystockinserial WHERE serialNumber=? AND companyGuid=?", [trimmedSerial, user.companyId]);
         if (sCheck.length > 0) { results.failed.push({ row: rowNum, serialNumber: trimmedSerial, reason: "Serial number already exists" }); continue; }
 
         const modelMRP = Number(mCheck[0].mrp) || 0;
@@ -73,8 +73,8 @@ export const POST = withErrorHandling(async (request) => {
 
         const serialGuid = randomUUID();
         await mysqlPool.query(
-          "INSERT INTO serials (guid,companyGuid,modelGuid,godownGuid,value,landingPrice,status,landingPriceReason,isDeleted,createdAt) VALUES (?,?,?,?,?,?,?,?,0,NOW())",
-          [serialGuid, user.companyId, modelId, godownGuid, trimmedSerial, landingPrice, String(statusValue).trim() || "Available", finalReason]
+          "INSERT INTO inventorystockinserial (serialId,guid,companyGuid,itemVariantId,godownGuid,serialNumber,landingPrice,serialStatus,landingPriceReason,isUsed,isDeleted,createdAt) VALUES (?,?,?,?,?,?,?,?,?,0,0,NOW())",
+          [serialGuid, serialGuid, user.companyId, modelId, godownGuid, trimmedSerial, landingPrice, String(statusValue).trim() || "Available", finalReason]
         );
         results.success.push({ row: rowNum, id: serialGuid, serialNumber: trimmedSerial, modelId, modelName: mCheck[0].name });
       } catch (e) {

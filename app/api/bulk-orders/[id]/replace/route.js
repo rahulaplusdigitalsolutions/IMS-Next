@@ -24,8 +24,8 @@ export const POST = withErrorHandling(async (request, { params }) => {
         [id, rep.oldSerialId]
       );
       if (!activeItem.length) throw new Error(`Serial ${rep.oldSerialId} is not an active item on this order`);
-      await conn.query("UPDATE serials SET status='Available' WHERE guid=?", [rep.oldSerialId]);
-      await conn.query("UPDATE serials SET status='Dispatched' WHERE guid=?", [rep.newSerialId]);
+      await conn.query("UPDATE inventorystockinserial SET serialStatus='Available' WHERE guid=?", [rep.oldSerialId]);
+      await conn.query("UPDATE inventorystockinserial SET serialStatus='Dispatched' WHERE guid=?", [rep.newSerialId]);
       await conn.query("UPDATE bulkorderitems SET itemStatus='Replaced' WHERE orderGuid=? AND serialNumberGuid=? AND itemStatus='Active'", [id, rep.oldSerialId]);
       await conn.query("INSERT INTO bulkorderitems (orderGuid,serialNumberGuid,itemStatus) VALUES (?,?,'Active')", [id, rep.newSerialId]);
       await conn.query("INSERT INTO replacementhistory (orderGuid,oldSerialId,newSerialId,reason,replacedBy) VALUES (?,?,?,?,?)", [id, rep.oldSerialId, rep.newSerialId, reason || "Replaced", user?.username || "System"]);

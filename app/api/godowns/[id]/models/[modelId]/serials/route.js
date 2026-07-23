@@ -10,7 +10,7 @@ export const GET = withErrorHandling(async (request, { params }) => {
   const { id, modelId } = await params;
 
   const [rows] = await mysqlPool.query(
-    "SELECT guid as id, value as serialNumber FROM serials WHERE godownGuid=? AND modelGuid=? AND status='Available' AND isDeleted=0 ORDER BY value ASC",
+    "SELECT guid as id, serialNumber FROM inventorystockinserial WHERE godownGuid=? AND itemVariantId=? AND serialStatus='Available' AND isDeleted=0 ORDER BY serialNumber ASC",
     [id, modelId]
   );
   return NextResponse.json(rows);

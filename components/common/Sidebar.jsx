@@ -3,7 +3,6 @@ import React, { useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  Printer,
   Barcode,
   Bell,
   Truck,
@@ -29,7 +28,8 @@ import {
   Box,
   Building2,
   UploadCloud,
-  Ban
+  Ban,
+  ArrowRightLeft
 } from "lucide-react";
 
 export default function Sidebar({ currentUser, isAdmin }) {
@@ -63,12 +63,12 @@ export default function Sidebar({ currentUser, isAdmin }) {
     { id: "fbfFbaMaster", label: "FBF / FBA Master", icon: Layers, group: "masters" },
 
     // Inventory
-    { id: "models", label: "Models", icon: Printer, group: "inventory" },
-    { id: "serials", label: "Serials", icon: Barcode, group: "inventory" },
-    { id: "warranty", label: "Warranty Certs", icon: ShieldAlert, group: "inventory" }, // Using ShieldAlert for ShieldCheck as fallback
-    { id: "stockIn", label: "Stock In", icon: Truck, group: "inventory" },
     { id: "currentStock", label: "Current Stock", icon: Package, group: "inventory" },
+    { id: "stockIn", label: "Stock In", icon: Truck, group: "inventory" }, // Using ShieldAlert for ShieldCheck as fallback
     { id: "fbfFbaManagement", label: "FBF / FBA Stock", icon: Package, group: "inventory" },
+    { id: "companyTransfer", label: "Company Transfer", icon: Building2, group: "inventory" },
+    { id: "godownTransfer", label: "Godown Transfer", icon: ArrowRightLeft, group: "inventory" },
+   
 
     // Order Processing
     { id: "orderTracking", label: "Order Processing", icon: Package, group: "orders" },
@@ -78,18 +78,19 @@ export default function Sidebar({ currentUser, isAdmin }) {
     // Operations
     { id: "returns", label: "Returns", icon: RotateCcw, group: "operations" },
     { id: "damaged", label: "Damaged", icon: Bell, group: "operations" }, // Using Bell or AlertOctagon if imported. Wait, I imported Bell.
-    { id: "installations", label: "Installations", icon: Wrench, group: "operations", badgeColor: "orange" }, // Badge value can be passed if needed
 
     // Independent
     { id: "billing", label: "Billing", icon: Receipt },
+    { id: "warranty", label: "Warranty Certs", icon: ShieldAlert },
+    { id: "installations", label: "Installations", icon: Wrench, badgeColor: "orange" }, // Badge value can be passed if needed
   ];
 
   if (!isSidebarVisible) {
     const mastersGroup = ["companyMaster","categoryMaster","brandMaster","vendorMaster","categoryBrandMapping","unitMaster","itemMaster","comboMaster","godownMaster","fbfFbaMaster"];
-    const inventoryGroup = ["models","serials","warranty","stockIn","currentStock","fbfFbaManagement"];
+    const inventoryGroup = ["currentStock","stockIn","fbfFbaManagement","companyTransfer","godownTransfer"];
     const ordersGroup = ["orderTracking","dispatch","stockOut"];
-    const operationsGroup = ["returns","damaged","installations"];
-    const settingsGroup = ["users","roles","userActivity","reports","profile","settings","notifications","warrantyEmail"];
+    const operationsGroup = ["returns","damaged"];
+    const settingsGroup = ["users","roles","userActivity","reports","profile","settings","notifications","warrantyEmail","apiLogs"];
 
     const expandTo = (group) => {
       setIsSidebarVisible(true);
@@ -144,6 +145,20 @@ export default function Sidebar({ currentUser, isAdmin }) {
             <Receipt size={20} />
           </button>
           <button
+            onClick={() => router.push("/warranty")}
+            title="Warranty Certs"
+            className={`p-2.5 rounded-xl transition-colors ${activeTab === "warranty" ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <ShieldAlert size={20} />
+          </button>
+          <button
+            onClick={() => router.push("/installations")}
+            title="Installations"
+            className={`p-2.5 rounded-xl transition-colors ${activeTab === "installations" ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
+          >
+            <Wrench size={20} />
+          </button>
+          <button
             onClick={() => expandTo("operations")}
             title="Returns & Damaged"
             className={`p-2.5 rounded-xl transition-colors ${operationsGroup.includes(activeTab) ? "bg-indigo-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-100"}`}
@@ -170,7 +185,7 @@ export default function Sidebar({ currentUser, isAdmin }) {
   }
 
   // Settings mode
-  if (['users','roles','userActivity','reports','profile','settings','notifications','warrantyEmail'].includes(activeTab)) {
+  if (['users','roles','userActivity','reports','profile','settings','notifications','warrantyEmail','apiLogs'].includes(activeTab)) {
     return (
       <aside className="bg-white border-r flex flex-col w-64 h-full shrink-0 animate-sidebar-in transition-all">
         <div className="p-4 flex items-center justify-between border-b border-slate-100">
@@ -207,6 +222,11 @@ export default function Sidebar({ currentUser, isAdmin }) {
           <button onClick={() => router.push('/notifications')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'notifications' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
             <Bell size={18} /> <span>Notifications</span>
           </button>
+          {isAdmin && (
+            <button onClick={() => router.push('/apiLogs')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'apiLogs' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+              <ShieldAlert size={18} /> <span>API Logs</span>
+            </button>
+          )}
           <div className="flex-1" />
           <div className="border-t border-slate-100 pt-2">
             <button onClick={() => router.push('/')} className="w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-slate-500 hover:bg-indigo-50 hover:text-indigo-600">
@@ -249,8 +269,8 @@ export default function Sidebar({ currentUser, isAdmin }) {
           {expandedMenus.contracts && (
             <div className="space-y-1 ml-4 border-l border-slate-100 animate-in slide-in-from-top-1">
               {navItems.filter(i => i.group === "contracts").map(item => (
-                <button key={item.id} onClick={() => router.push(item.path || `/${item.id}`)} className={`w-full flex gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${pathname === (item.path || `/${item.id}`) ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
-                  {item.icon && <item.icon size={14} />} <span>{item.label}</span>
+                <button key={item.id} onClick={() => router.push(item.path || `/${item.id}`)} className={`w-full flex items-center gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${pathname === (item.path || `/${item.id}`) ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+                  {item.icon && <item.icon size={14} className="flex-shrink-0" />} <span className="truncate">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -266,8 +286,8 @@ export default function Sidebar({ currentUser, isAdmin }) {
           {expandedMenus.masters && (
             <div className="space-y-1 ml-4 border-l border-slate-100 animate-in slide-in-from-top-1">
               {navItems.filter(i => i.group === "masters").map(item => (
-                <button key={item.id} onClick={() => router.push(`/${item.id}`)} className={`w-full flex gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
-                  {item.icon && <item.icon size={14} />} <span>{item.label}</span>
+                <button key={item.id} onClick={() => router.push(`/${item.id}`)} className={`w-full flex items-center gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+                  {item.icon && <item.icon size={14} className="flex-shrink-0" />} <span className="truncate">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -283,8 +303,8 @@ export default function Sidebar({ currentUser, isAdmin }) {
           {expandedMenus.inventory && (
             <div className="space-y-1 ml-4 border-l border-slate-100 animate-in slide-in-from-top-1">
               {navItems.filter(i => i.group === "inventory").map(item => (
-                <button key={item.id} onClick={() => router.push(`/${item.id}`)} className={`w-full flex gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
-                  {item.icon && <item.icon size={14} />} <span>{item.label}</span>
+                <button key={item.id} onClick={() => router.push(`/${item.id}`)} className={`w-full flex items-center gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+                  {item.icon && <item.icon size={14} className="flex-shrink-0" />} <span className="truncate">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -300,8 +320,8 @@ export default function Sidebar({ currentUser, isAdmin }) {
           {expandedMenus.orders && (
             <div className="space-y-1 ml-4 border-l border-slate-100 animate-in slide-in-from-top-1">
               {navItems.filter(i => i.group === "orders").map(item => (
-                <button key={item.id} onClick={() => router.push(`/${item.id}`)} className={`w-full flex gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
-                  {item.icon && <item.icon size={14} />} <span>{item.label}</span>
+                <button key={item.id} onClick={() => router.push(`/${item.id}`)} className={`w-full flex items-center gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === item.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+                  {item.icon && <item.icon size={14} className="flex-shrink-0" />} <span className="truncate">{item.label}</span>
                 </button>
               ))}
             </div>
@@ -313,6 +333,16 @@ export default function Sidebar({ currentUser, isAdmin }) {
           <Receipt size={18} /> <span>Billing</span>
         </button>
 
+        {/* WARRANTY */}
+        <button onClick={() => router.push('/warranty')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'warranty' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+          <ShieldAlert size={18} /> <span>Warranty Certs</span>
+        </button>
+
+        {/* INSTALLATIONS */}
+        <button onClick={() => router.push('/installations')} className={`w-full flex gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'installations' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+          <Wrench size={18} /> <span>Installations</span>
+        </button>
+
         {/* OPERATIONS */}
         <div className="space-y-1">
           <button onClick={() => toggleSubmenu("operations")} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:bg-slate-100">
@@ -322,7 +352,7 @@ export default function Sidebar({ currentUser, isAdmin }) {
           {expandedMenus.operations && (
             <div className="space-y-1 ml-4 border-l border-slate-100 animate-in slide-in-from-top-1">
               {navItems.filter(i => i.group === "operations").map(item => (
-                <button key={item.id} onClick={() => router.push(`/${item.id}`)} className={`w-full flex gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors relative ${activeTab === item.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
+                <button key={item.id} onClick={() => router.push(`/${item.id}`)} className={`w-full flex items-center gap-3 pl-4 pr-3 py-2 rounded-lg text-sm font-medium transition-colors relative ${activeTab === item.id ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-100'}`}>
                   {item.icon && <item.icon size={14} />}
                   <span>{item.label}</span>
                   {item.badge && (

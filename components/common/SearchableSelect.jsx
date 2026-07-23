@@ -72,7 +72,7 @@ export default function SearchableSelect({ value, onChange, options = [], placeh
       {/* Dropdown list */}
       {open && !disabled && (
         <div className="absolute z-50 w-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden">
-          <div className="max-h-52 overflow-y-auto">
+          <div className="max-h-96 overflow-y-auto">
             {filtered.length === 0 ? (
               <div className="px-4 py-5 text-center text-slate-400 text-xs font-medium">{emptyMsg}</div>
             ) : (

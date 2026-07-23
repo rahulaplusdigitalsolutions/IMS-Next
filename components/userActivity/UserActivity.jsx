@@ -112,7 +112,7 @@ export default function UserActivity() {
   };
 
   return (
-    <div className="max-w-9xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
 
       {/* Premium Header */}
       <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-6 md:p-8 text-white shadow-lg shadow-slate-200">

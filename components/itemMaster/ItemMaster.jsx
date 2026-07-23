@@ -263,20 +263,11 @@ export default function ItemMaster() {
           </div>
           <div className="flex flex-col justify-center pt-2">
             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Ask Serial No. <span className="text-red-500">*</span></label>
-            <select value={isTrackable ? "true" : "false"} onChange={(e) => { setIsTrackable(e.target.value === "true"); if (e.target.value === "false") setUseSerialTab(false); }} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-500 shadow-sm font-semibold">
+            <select value={isTrackable ? "true" : "false"} onChange={(e) => setIsTrackable(e.target.value === "true")} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-500 shadow-sm font-semibold">
               <option value="false">No</option>
               <option value="true">Yes</option>
             </select>
           </div>
-          {isTrackable && (
-            <div className="flex flex-col justify-center pt-2">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Serial Tab <span className="text-slate-400 font-normal normal-case">(Printers etc.)</span></label>
-              <select value={useSerialTab ? "true" : "false"} onChange={(e) => setUseSerialTab(e.target.value === "true")} className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-indigo-500 shadow-sm font-semibold">
-                <option value="false">Current Stock</option>
-                <option value="true">Serial Tab</option>
-              </select>
-            </div>
-          )}
         </div>
         <div className="flex justify-end gap-3 border-t border-slate-200 pt-4">
           {itemId && (<button onClick={resetForm} className="px-6 py-2.5 rounded-xl font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-100 shadow-sm transition-all">Clear</button>)}
@@ -323,7 +314,6 @@ export default function ItemMaster() {
                   <td className="py-4 px-6 text-sm font-bold text-slate-700">
                     {item.itemName}
                     {item.isTrackable ? <span className="ml-2 text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Trackable</span> : null}
-                    {item.useSerialTab ? <span className="ml-1 text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Serial Tab</span> : null}
                   </td>
                   <td className="py-3 px-6 text-sm text-slate-600">{item.categoryName}</td>
                   <td className="py-3 px-6 text-sm text-slate-600">{item.brandName}</td>

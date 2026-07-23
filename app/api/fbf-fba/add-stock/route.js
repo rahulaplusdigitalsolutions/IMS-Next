@@ -72,7 +72,7 @@ export const POST = withErrorHandling(async (request) => {
 
     if (isSerialized && serialNumbers && serialNumbers.length > 0) {
       const [matchedSerials] = await connection.query(
-        "SELECT value FROM serials WHERE value IN (?) AND modelGuid = ? AND isDeleted = 0 AND companyGuid = ? FOR UPDATE",
+        "SELECT serialNumber as value FROM inventorystockinserial WHERE serialNumber IN (?) AND itemVariantId = ? AND isDeleted = 0 AND companyGuid = ? FOR UPDATE",
         [serialNumbers, safeModelId, user.companyId]
       );
       if (matchedSerials.length !== serialNumbers.length) {
@@ -80,12 +80,12 @@ export const POST = withErrorHandling(async (request) => {
       }
 
       await connection.query(
-        "UPDATE serials SET status = ?, fbfFbaType = ? WHERE value IN (?) AND modelGuid = ? AND companyGuid = ?",
+        "UPDATE inventorystockinserial SET serialStatus = ?, fbfFbaType = ? WHERE serialNumber IN (?) AND itemVariantId = ? AND companyGuid = ?",
         [type, type, serialNumbers, safeModelId, user.companyId]
       );
 
       for (const sn of serialNumbers) {
-        const [sRow] = await connection.query("SELECT guid FROM serials WHERE value = ? AND companyGuid = ?", [sn, user.companyId]);
+        const [sRow] = await connection.query("SELECT guid FROM inventorystockinserial WHERE serialNumber = ? AND companyGuid = ?", [sn, user.companyId]);
         if (sRow.length > 0) {
           await recordSerialMovement(connection, {
             companyGuid: user.companyId,

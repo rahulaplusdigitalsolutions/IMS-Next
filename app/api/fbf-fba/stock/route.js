@@ -16,12 +16,14 @@ export const GET = withErrorHandling(async (request) => {
         w.platform as whPlatform,
         w.state as whState,
         w.warehouseName as whName,
-        COALESCE(m.name, i.itemName) as modelName,
-        COALESCE(m.company, b.brandName) as company,
-        CASE WHEN s.itemKind = 'serialized' THEN m.isSerialized ELSE 0 END as isSerialized,
-        (SELECT GROUP_CONCAT(value) FROM serials WHERE status = s.type AND modelGuid = s.modelGuid AND isDeleted = 0) as activeSerials
+        COALESCE(miv.variantName, i.itemName) as modelName,
+        COALESCE(mb.brandName, b.brandName) as company,
+        CASE WHEN s.itemKind = 'serialized' THEN 1 ELSE 0 END as isSerialized,
+        (SELECT GROUP_CONCAT(serialNumber) FROM inventorystockinserial WHERE serialStatus = s.type AND itemVariantId = s.modelGuid AND isDeleted = 0) as activeSerials
     FROM fbf_fba_stock s
-    LEFT JOIN models m ON s.modelGuid = m.guid
+    LEFT JOIN inventoryitemvariant miv ON s.modelGuid = miv.itemVariantId
+    LEFT JOIN inventoryitemmaster mim ON miv.itemId = mim.itemId
+    LEFT JOIN inventorybrandmaster mb ON mim.brandId = mb.brandId
     LEFT JOIN inventoryitemmaster i ON s.itemId = i.itemId
     LEFT JOIN inventorybrandmaster b ON i.brandId = b.brandId
     LEFT JOIN fbf_fba_warehouses w ON s.warehouseGuid = w.guid

@@ -306,6 +306,27 @@ export default function OrderDetailModal({
                 }
               });
 
+              // Custom/"Additional" doc types have no single authoritative
+              // filename column (unlike gemContract/invoice/ewayBill/pod) —
+              // every upload, including a "replace", just appends a new row
+              // to orderdocuments. Without this, a replaced doc shows up as
+              // a second, separate entry instead of overwriting the first.
+              // Pick the newest upload per docType as current; anything
+              // older with the same docType is superseded.
+              const customDocsInAudit = (selectedBatch.documents || []).filter(d => !STANDARD_DOC_TYPES.includes(d.docType));
+              const latestCustomDocByType = new Map();
+              customDocsInAudit.forEach(d => {
+                const existing = latestCustomDocByType.get(d.docType);
+                if (!existing || new Date(d.createdAt || 0) >= new Date(existing.createdAt || 0)) {
+                  latestCustomDocByType.set(d.docType, d);
+                }
+              });
+              customDocsInAudit.forEach(d => {
+                if (latestCustomDocByType.get(d.docType) !== d) {
+                  oldDocs.push({ filename: d.filename, docType: d.docType });
+                }
+              });
+
               // Auto-fetch the model for an Edit-mode serial input once a full value lands (scanner Enter / blur)
               const fetchModelForEditRow = (rowIdx, scannedValue) => {
                 if (!scannedValue) return;
@@ -1428,7 +1449,7 @@ export default function OrderDetailModal({
                           </div>
                           {/* Additional / Custom Docs shown inside Audit section */}
                           {(() => {
-                            const extraDocsInAudit = (selectedBatch.documents || []).filter(d => !STANDARD_DOC_TYPES.includes(d.docType));
+                            const extraDocsInAudit = Array.from(latestCustomDocByType.values());
                             if (extraDocsInAudit.length === 0) return null;
                             return (
                               <div className="px-4 pb-4">

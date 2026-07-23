@@ -7,10 +7,9 @@ import { UserPlus, User, Lock, ArrowRight, Loader2, AlertCircle } from "lucide-r
 
 import { authService } from "@/lib/services/authService";
 import { getStoredUser } from "@/lib/client/auth";
-import { ROLE_OPTIONS } from "@/lib/client/rbac";
 
 export default function SignupPage() {
-  const [formData, setFormData] = useState({ username: "", password: "", role: "User" });
+  const [formData, setFormData] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [setupRequired, setSetupRequired] = useState(false);
@@ -33,9 +32,6 @@ export default function SignupPage() {
 
         const needsSetup = Boolean(result?.setupRequired);
         setSetupRequired(needsSetup);
-        if (needsSetup) {
-          setFormData((prev) => ({ ...prev, role: "Admin" }));
-        }
       } catch {
         if (mounted) {
           setSetupRequired(false);
@@ -140,28 +136,11 @@ export default function SignupPage() {
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-600 uppercase tracking-wide ml-1">Role</label>
-            <select
-              className="w-full border border-slate-200 bg-slate-50/50 p-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all duration-200 text-sm text-slate-700"
-              value={setupRequired ? "Admin" : formData.role}
-              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-              disabled={setupRequired}
-            >
-              {(setupRequired ? ROLE_OPTIONS.filter((option) => option.value === "Admin") : ROLE_OPTIONS).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-[11px] text-slate-400 ml-1">
-              {setupRequired
-                ? "The first account is created as Administrator."
-                : currentUser?.role === "Admin"
-                  ? "Admin can assign roles during user creation."
-                  : "Only Admin can create users once setup is complete."}
-            </p>
-          </div>
+          <p className="text-[11px] text-slate-400 ml-1">
+            {setupRequired
+              ? "The first account is created as Administrator."
+              : "This account starts with no role — assign one from the Users page after creation."}
+          </p>
 
           <button
             disabled={isLoading}

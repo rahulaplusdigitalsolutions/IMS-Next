@@ -40,7 +40,7 @@ const VendorDetails = () => {
   const tagInputRef = useRef(null);
 
   const getHeaders = () => {
-    const token = localStorage.getItem("pt_auth_token");
+    const token = sessionStorage.getItem("pt_auth_token");
     return {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,

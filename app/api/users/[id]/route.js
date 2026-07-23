@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requirePermission, isSuperUser, invalidateUserCache, ApiError } from "@/lib/auth";
-import { sanitizeUser, normalizeRole, safeStr, hashPassword } from "@/lib/helpers";
+import { authenticateRequest, requirePermission, isSuperUser, invalidateUserCache, resolveRole, ApiError } from "@/lib/auth";
+import { sanitizeUser, safeStr, hashPassword } from "@/lib/helpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
 export const PUT = withErrorHandling(async (request, { params }) => {
@@ -10,10 +10,7 @@ export const PUT = withErrorHandling(async (request, { params }) => {
   const { id } = await params;
 
   const {
-    username, password, role, roleLabel, fullName, email, phone, permissions,
-    allow_edit_models, allow_edit_serials, allow_edit_godown,
-    allow_create_order, allow_edit_order_processing, allow_edit_billing, allow_edit_dispatch,
-    allow_edit_installations, allow_edit_damaged, allow_edit_returns, allow_edit_fbf_fba, allow_edit_warranty,
+    username, password, roleId, fullName, email, phone,
     companyIds, allCompaniesAccess,
   } = await parseJsonBody(request);
 
@@ -23,37 +20,29 @@ export const PUT = withErrorHandling(async (request, { params }) => {
 
   const nextUsername = safeStr(username, cur.username);
   const nextPassword = password && password.trim() !== "" ? await hashPassword(password) : cur.password;
-  const nextRole = normalizeRole(role || cur.role);
-  const nextRoleLabel = roleLabel !== undefined ? safeStr(roleLabel) : cur.roleLabel;
-  const nextPerms = Array.isArray(permissions) ? JSON.stringify(permissions) : cur.permissions || "[]";
+
+  let nextRole = cur.role;
+  let nextRoleId = cur.roleId;
+  if (roleId !== undefined) {
+    const resolved = await resolveRole(roleId);
+    if (!resolved.role) throw new ApiError(400, "Selected role could not be found.");
+    nextRole = resolved.role;
+    nextRoleId = resolved.roleId;
+  }
 
   const [dup] = await mysqlPool.query("SELECT userid FROM users WHERE username=? AND userid<>?", [nextUsername, id]);
   if (dup.length > 0) throw new ApiError(400, "Username already exists.");
   if (String(id) === String(user.id) && !isSuperUser(nextRole) && isSuperUser(cur.role)) {
-    throw new ApiError(400, "You cannot remove your own elevated access.");
-  }
-  if (String(id) === String(user.id) && nextRole !== "Admin" && cur.role === "Admin") {
     throw new ApiError(400, "You cannot remove your own Admin access.");
   }
 
-  const b = (flag, fallback) => (flag !== undefined ? (flag ? 1 : 0) : fallback);
-
   await mysqlPool.query(
-    `UPDATE users SET username=?, password=?, role=?, roleLabel=?, fullName=?, email=?, phone=?, permissions=?,
-       allow_edit_models=?, allow_edit_serials=?, allow_edit_godown=?,
-       allow_create_order=?, allow_edit_order_processing=?, allow_edit_billing=?, allow_edit_dispatch=?,
-       allow_edit_installations=?, allow_edit_damaged=?, allow_edit_returns=?, allow_edit_fbf_fba=?, allow_edit_warranty=?,
+    `UPDATE users SET username=?, password=?, role=?, roleId=?, fullName=?, email=?, phone=?,
        allCompaniesAccess=?, updatedAt=NOW()
      WHERE userid=?`,
-    [nextUsername, nextPassword, nextRole, nextRoleLabel, safeStr(fullName, cur.fullName), safeStr(email, cur.email),
-      safeStr(phone, cur.phone), nextPerms,
-      b(allow_edit_models, cur.allow_edit_models), b(allow_edit_serials, cur.allow_edit_serials),
-      b(allow_edit_godown, cur.allow_edit_godown),
-      b(allow_create_order, cur.allow_create_order), b(allow_edit_order_processing, cur.allow_edit_order_processing),
-      b(allow_edit_billing, cur.allow_edit_billing), b(allow_edit_dispatch, cur.allow_edit_dispatch),
-      b(allow_edit_installations, cur.allow_edit_installations), b(allow_edit_damaged, cur.allow_edit_damaged),
-      b(allow_edit_returns, cur.allow_edit_returns), b(allow_edit_fbf_fba, cur.allow_edit_fbf_fba),
-      b(allow_edit_warranty, cur.allow_edit_warranty), b(allCompaniesAccess, cur.allCompaniesAccess), id]
+    [nextUsername, nextPassword, nextRole, nextRoleId, safeStr(fullName, cur.fullName), safeStr(email, cur.email),
+      safeStr(phone, cur.phone),
+      allCompaniesAccess !== undefined ? (allCompaniesAccess ? 1 : 0) : cur.allCompaniesAccess, id]
   );
   if (companyIds && Array.isArray(companyIds)) {
     await mysqlPool.query("DELETE FROM user_companies WHERE userGuid=?", [id]);
@@ -77,9 +66,11 @@ export const DELETE = withErrorHandling(async (request, { params }) => {
   const [target] = await mysqlPool.query("SELECT * FROM users WHERE userid=?", [id]);
   if (!target.length) throw new ApiError(404, "User not found.");
 
-  if (normalizeRole(target[0].role) === "Admin") {
-    const [admins] = await mysqlPool.query("SELECT COUNT(*) as total FROM users WHERE role='Admin'");
-    if (Number(admins[0].total) <= 1) throw new ApiError(400, "At least one Admin account must remain.");
+  // Admin accounts are never removable, by anyone, regardless of how many
+  // other Admins exist — protects against accidentally locking the company
+  // out of its own elevated access.
+  if (isSuperUser(target[0].role)) {
+    throw new ApiError(400, "Admin accounts cannot be deleted.");
   }
 
   await mysqlPool.query("DELETE FROM users WHERE userid=?", [id]);

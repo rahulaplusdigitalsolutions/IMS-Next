@@ -31,13 +31,15 @@ export const GET = withErrorHandling(async (request) => {
       o.status,
       oi.sellingPrice,
       oi.warranty,
-      s.value         AS serialValue,
-      m.name          AS modelName,
-      m.company       AS companyName
+      s.serialNumber  AS serialValue,
+      fbiv.variantName    AS modelName,
+      fbbm.brandName   AS companyName
     FROM orders o
     LEFT JOIN order_items oi ON oi.orderGuid = o.guid AND oi.companyGuid = o.companyGuid
-    LEFT JOIN serials s      ON oi.serialNumberGuid = s.guid AND s.companyGuid = o.companyGuid
-    LEFT JOIN models m       ON s.modelGuid = m.guid AND m.companyGuid = o.companyGuid
+    LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid = s.guid AND s.companyGuid = o.companyGuid
+    LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId = fbiv.itemVariantId AND fbiv.companyGuid = o.companyGuid
+    LEFT JOIN inventoryitemmaster fbim ON fbiv.itemId = fbim.itemId AND fbim.companyGuid = o.companyGuid
+    LEFT JOIN inventorybrandmaster fbbm ON fbim.brandId = fbbm.brandId AND fbbm.companyGuid = o.companyGuid
     WHERE o.isDeleted = 0 AND o.companyGuid = ?
     ORDER BY o.dispatchDate DESC, o.orderDate DESC
   `, [user.companyId]);

@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, authorizeReadWrite, ALL_AUTHENTICATED_ROLES, requireCompany, resolveScopedCompanyGuid, ApiError } from "@/lib/auth";
+import { authenticateRequest, authorizeReadWrite, requireCompany, resolveScopedCompanyGuid, ApiError } from "@/lib/auth";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 import { broadcastRealtimeEvent } from "@/lib/realtimeEvents";
 
 const authorize = (user, method) =>
   authorizeReadWrite(user, method, {
-    readRoles: ALL_AUTHENTICATED_ROLES,
-    writeRoles: ["Admin", "User", "Operator", "Supervisor"],
-    deleteRoles: ["Admin"],
-    denyMessage: "Only Admin or Operators can manage contracts.",
+    permission: "orders",
+    editColumnName: "allow_edit_order_processing",
+    adminOnlyDelete: true,
+    denyMessage: "You do not have permission to manage contracts.",
   });
 
 export const GET = withErrorHandling(async (request) => {

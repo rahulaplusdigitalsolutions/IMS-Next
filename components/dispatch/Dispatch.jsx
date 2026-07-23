@@ -210,6 +210,10 @@ export default function Dispatch({
   const [showPackagingModal, setShowPackagingModal] = useState(false);
   const [editingModelId, setEditingModelId] = useState(null);
   const [tempCost, setTempCost] = useState("");
+  const [tempLength, setTempLength] = useState("");
+  const [tempWidth, setTempWidth] = useState("");
+  const [tempHeight, setTempHeight] = useState("");
+  const [tempWeight, setTempWeight] = useState("");
   const [localModels, setLocalModels] = useState(models);
   const [logisticsBatch, setLogisticsBatch] = useState(null);
   const [isCreatingShipment, setIsCreatingShipment] = useState(false);
@@ -550,6 +554,10 @@ export default function Dispatch({
   const startEditingModel = (model) => {
     setEditingModelId(model.guid);
     setTempCost(model.packagingCost || "");
+    setTempLength(model.packageLength || "");
+    setTempWidth(model.packageWidth || "");
+    setTempHeight(model.packageHeight || "");
+    setTempWeight(model.packageWeight || "");
   };
 
   const saveModelCost = async (modelGuid) => {
@@ -558,8 +566,21 @@ export default function Dispatch({
     if (apiFunction && existingModel) {
       try {
         const newCost = Number(tempCost);
-        await apiFunction(modelGuid, { ...existingModel, packagingCost: newCost });
-        setLocalModels(prev => prev.map(m => (m.guid || m.id) === modelGuid ? { ...m, packagingCost: newCost } : m));
+        const newLength = tempLength === "" ? null : Number(tempLength);
+        const newWidth = tempWidth === "" ? null : Number(tempWidth);
+        const newHeight = tempHeight === "" ? null : Number(tempHeight);
+        const newWeight = tempWeight === "" ? null : Number(tempWeight);
+        await apiFunction(modelGuid, {
+          ...existingModel,
+          packagingCost: newCost,
+          packageLength: newLength,
+          packageWidth: newWidth,
+          packageHeight: newHeight,
+          packageWeight: newWeight,
+        });
+        setLocalModels(prev => prev.map(m => (m.guid || m.id) === modelGuid
+          ? { ...m, packagingCost: newCost, packageLength: newLength, packageWidth: newWidth, packageHeight: newHeight, packageWeight: newWeight }
+          : m));
         setEditingModelId(null);
       } catch (error) {
         alert("Failed to update model cost: " + error.message);
@@ -861,9 +882,9 @@ export default function Dispatch({
         <StatCard icon={Box} label="Dispatch" value={dashboardStats.totalDispatch} color="bg-indigo-50 text-indigo-600" />
         <StatCard icon={Clock} label="Ready for Pickup" value={dashboardStats.readyCount} color="bg-amber-50 text-amber-600" />
         <StatCard icon={Truck} label="In Transit" value={dashboardStats.inTransitCount} color="bg-blue-50 text-blue-600" />
+        <StatCard icon={FileText} label="POD Pending" value={dashboardStats.podPendingCount} color="bg-amber-50 text-amber-700" />
         <StatCard icon={CheckCircle} label="Delivered" value={dashboardStats.deliveredCount} color="bg-emerald-50 text-emerald-600" />
         <StatCard icon={RotateCcw} label="RTO" value={dashboardStats.rtoCount} color="bg-red-50 text-red-600" />
-        <StatCard icon={FileText} label="POD Pending" value={dashboardStats.podPendingCount} color="bg-amber-50 text-amber-700" />
         {isAdmin && (
             <StatCard icon={Banknote} label=" Charges" value={`₹${dashboardStats.totalFreight.toLocaleString("en-IN")}`} color="bg-purple-50 text-purple-600" subText=" Freight Cost" />
         )}
@@ -872,7 +893,7 @@ export default function Dispatch({
         )}
         {isAdmin && (
             <div className="col-span-full flex justify-end mt-1">
-              <button onClick={() => setShowPackagingModal(true)} className="flex items-center gap-2 bg-pink-50 text-pink-700 px-4 py-2 rounded-xl text-xs font-bold border border-pink-100 hover:bg-pink-100 transition shadow-sm"><Package size={14} />Set Packaging Cost</button>
+              <button onClick={() => setShowPackagingModal(true)} className="flex items-center gap-2 bg-pink-50 text-pink-700 px-4 py-2 rounded-xl text-xs font-bold border border-pink-100 hover:bg-pink-100 transition shadow-sm"><Package size={14} />Packaging Cost & Dimensions</button>
             </div>
         )}
       </div>
@@ -1118,19 +1139,36 @@ export default function Dispatch({
 
       {showPackagingModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 flex flex-col max-h-[85vh]">
-            <div className="flex justify-between items-center mb-4 shrink-0"><h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Package className="text-pink-500" size={20} /> Packaging Cost</h3><button onClick={() => setShowPackagingModal(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={18} /></button></div>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl p-6 flex flex-col max-h-[85vh]">
+            <div className="flex justify-between items-center mb-4 shrink-0"><h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Package className="text-pink-500" size={20} /> Packaging Cost & Dimensions</h3><button onClick={() => setShowPackagingModal(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={18} /></button></div>
             <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl">
               <table className="w-full text-sm text-left">
-                <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold sticky top-0"><tr><th className="px-4 py-3">Model Name</th><th className="px-4 py-3 text-right">Standard Cost</th><th className="px-4 py-3 text-right">Action</th></tr></thead>
+                <thead className="bg-slate-50 text-xs text-slate-500 uppercase font-bold sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3">Model Name</th>
+                    <th className="px-4 py-3 text-right">Cost</th>
+                    <th className="px-3 py-3 text-right">L (cm)</th>
+                    <th className="px-3 py-3 text-right">W (cm)</th>
+                    <th className="px-3 py-3 text-right">H (cm)</th>
+                    <th className="px-3 py-3 text-right">Weight (kg)</th>
+                    <th className="px-4 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {localModels.map((model) => (
-                    <tr key={model.guid} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-medium text-slate-700">{model.name}</td>
-                      <td className="px-4 py-3 text-right font-mono">{editingModelId === model.guid ? <input type="number" className="w-20 border border-indigo-300 rounded px-2 py-1 text-right text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={tempCost} onChange={(e) => setTempCost(e.target.value)} autoFocus /> : <span className={model.packagingCost > 0 ? "text-pink-600 font-bold" : "text-slate-400"}>₹{Number(model.packagingCost || 0).toLocaleString()}</span>}</td>
-                      <td className="px-4 py-3 text-right">{editingModelId === model.guid ? <button onClick={() => saveModelCost(model.guid)} className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Save size={14} /></button> : <button onClick={() => startEditingModel(model)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"><Edit2 size={14} /></button>}</td>
-                    </tr>
-                  ))}
+                  {localModels.map((model) => {
+                    const isEditing = editingModelId === model.guid;
+                    return (
+                      <tr key={model.guid} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-medium text-slate-700">{model.name}</td>
+                        <td className="px-4 py-3 text-right font-mono">{isEditing ? <input type="number" className="w-20 border border-indigo-300 rounded px-2 py-1 text-right text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={tempCost} onChange={(e) => setTempCost(e.target.value)} autoFocus /> : <span className={model.packagingCost > 0 ? "text-pink-600 font-bold" : "text-slate-400"}>₹{Number(model.packagingCost || 0).toLocaleString()}</span>}</td>
+                        <td className="px-3 py-3 text-right font-mono">{isEditing ? <input type="number" min="0" step="0.1" className="w-16 border border-indigo-300 rounded px-2 py-1 text-right text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={tempLength} onChange={(e) => setTempLength(e.target.value)} placeholder="L" /> : <span className={model.packageLength ? "text-slate-700" : "text-slate-300"}>{model.packageLength || "-"}</span>}</td>
+                        <td className="px-3 py-3 text-right font-mono">{isEditing ? <input type="number" min="0" step="0.1" className="w-16 border border-indigo-300 rounded px-2 py-1 text-right text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={tempWidth} onChange={(e) => setTempWidth(e.target.value)} placeholder="W" /> : <span className={model.packageWidth ? "text-slate-700" : "text-slate-300"}>{model.packageWidth || "-"}</span>}</td>
+                        <td className="px-3 py-3 text-right font-mono">{isEditing ? <input type="number" min="0" step="0.1" className="w-16 border border-indigo-300 rounded px-2 py-1 text-right text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={tempHeight} onChange={(e) => setTempHeight(e.target.value)} placeholder="H" /> : <span className={model.packageHeight ? "text-slate-700" : "text-slate-300"}>{model.packageHeight || "-"}</span>}</td>
+                        <td className="px-3 py-3 text-right font-mono">{isEditing ? <input type="number" min="0" step="0.1" className="w-16 border border-indigo-300 rounded px-2 py-1 text-right text-xs focus:ring-2 focus:ring-indigo-500 outline-none" value={tempWeight} onChange={(e) => setTempWeight(e.target.value)} placeholder="Wt" /> : <span className={model.packageWeight ? "text-slate-700" : "text-slate-300"}>{model.packageWeight || "-"}</span>}</td>
+                        <td className="px-4 py-3 text-right">{isEditing ? <button onClick={() => saveModelCost(model.guid)} className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><Save size={14} /></button> : <button onClick={() => startEditingModel(model)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"><Edit2 size={14} /></button>}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

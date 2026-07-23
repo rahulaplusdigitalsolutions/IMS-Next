@@ -24,7 +24,7 @@ const getUploadFileUrl = (filename) => {
 
 const getAuthHeaders = () => {
   try {
-    const token = localStorage.getItem("pt_auth_token");
+    const token = sessionStorage.getItem("pt_auth_token");
     return { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } };
   } catch {
     return {};

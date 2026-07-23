@@ -8,7 +8,7 @@ import {
   Printer, ShieldCheck, Image, Upload, Code2,
   Loader2, Plus, RefreshCw, X, Copy
 } from "lucide-react";
-const getStoredToken = () => typeof window !== "undefined" ? localStorage.getItem("pt_auth_token") : null;
+const getStoredToken = () => typeof window !== "undefined" ? sessionStorage.getItem("pt_auth_token") : null;
 
 const API = process.env.NEXT_PUBLIC_API_URL || "";
 const getHeaders = () => ({ Authorization: `Bearer ${getStoredToken()}` });
@@ -322,7 +322,7 @@ export default function WarrantyCertificate({ isAdmin, currentUser }) {
           </div>
         </div>
 
-        <div className="p-6 space-y-6 max-w-8xl mx-auto">
+        <div className="p-6 space-y-6 max-w-7xl mx-auto">
 
           {/* Section 1 — Header Image */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -549,11 +549,11 @@ export default function WarrantyCertificate({ isAdmin, currentUser }) {
   // RENDER: MAIN LIST PAGE
   // ────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-slate-50 p-5">
-      <div className="max-w-8xl mx-auto">
+    <div className="h-full bg-slate-50 p-5 flex flex-col">
+      <div className="max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0">
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 shrink-0">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2.5">
               <ShieldCheck className="text-indigo-600" size={26} />
@@ -570,7 +570,7 @@ export default function WarrantyCertificate({ isAdmin, currentUser }) {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-slate-200 rounded-xl p-1 mb-5 w-fit">
+        <div className="flex gap-1 bg-slate-200 rounded-xl p-1 mb-5 w-fit shrink-0">
           <button onClick={() => setListTab("generate")}
             className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
               listTab === "generate" ? "bg-white shadow text-slate-800" : "text-slate-500 hover:text-slate-700"
@@ -590,8 +590,8 @@ export default function WarrantyCertificate({ isAdmin, currentUser }) {
 
         {/* ── TAB: Generate Certificate ── */}
         {listTab === "generate" && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-            <div className="px-5 pt-4 pb-3 border-b border-slate-100 flex items-center gap-3">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex-1 flex flex-col min-h-0">
+            <div className="px-5 pt-4 pb-3 border-b border-slate-100 flex items-center gap-3 shrink-0">
               <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                 <FileText size={14} className="text-blue-600" />GEM Orders
               </h2>
@@ -627,7 +627,7 @@ export default function WarrantyCertificate({ isAdmin, currentUser }) {
               </div>
             )}
             {!ordersLoading && filteredOrders.length > 0 && (
-              <div className="overflow-y-auto" style={{ maxHeight: 560 }}>
+              <div className="overflow-y-auto flex-1 min-h-0">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 sticky top-0">
                     <tr>
@@ -677,8 +677,8 @@ export default function WarrantyCertificate({ isAdmin, currentUser }) {
 
         {/* ── TAB: Saved Certificates ── */}
         {listTab === "saved" && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-            <div className="px-5 pt-4 pb-3 border-b border-slate-100 flex items-center gap-2">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm flex-1 flex flex-col min-h-0">
+            <div className="px-5 pt-4 pb-3 border-b border-slate-100 flex items-center gap-2 shrink-0">
               <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
                 <Clock size={14} className="text-amber-500" />Saved Certificates
               </h2>
@@ -700,7 +700,7 @@ export default function WarrantyCertificate({ isAdmin, currentUser }) {
               </div>
             )}
             {savedCerts.length > 0 && (
-              <div className="overflow-y-auto" style={{ maxHeight: 560 }}>
+              <div className="overflow-y-auto flex-1 min-h-0">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 sticky top-0">
                     <tr>

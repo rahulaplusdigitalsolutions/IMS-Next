@@ -61,15 +61,17 @@ export const GET = withErrorHandling(async (request, { params }) => {
         ol.courierPartner, ol.trackingId, ol.logisticsStatus, ol.logisticsDispatchDate, ol.podFilename, ol.lastDeliveryDate,
         ins.installationRequired, ins.installationStatus, ins.technicianName, ins.technicianContact,
         ins.installationCharges, ins.installationRemarks, ins.scheduledDate, ins.installationDate,
-        s.value as serialValue, s.landingPrice,
-        m.name as modelName, m.company as companyName, m.category as modelCategory,
+        s.serialNumber as serialValue, s.landingPrice,
+        fbiv.variantName as modelName, fbbm.brandName as companyName,
         p.paymentDate as paymentReceivedDate, p.amount as paymentReceivedAmount, p.utrId
     FROM order_items oi
     JOIN orders o ON oi.orderGuid = o.guid
     LEFT JOIN order_logistics ol ON o.guid = ol.orderGuid
     LEFT JOIN order_installations ins ON o.guid = ins.orderGuid
-    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid
-    LEFT JOIN models m ON s.modelGuid = m.guid
+    LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid = s.guid
+    LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId = fbiv.itemVariantId
+    LEFT JOIN inventoryitemmaster fbim ON fbiv.itemId = fbim.itemId
+    LEFT JOIN inventorybrandmaster fbbm ON fbim.brandId = fbbm.brandId
     LEFT JOIN (
         SELECT p1.dispatchGuid, p1.paymentDate, p1.amount, p1.utrId
         FROM payments p1

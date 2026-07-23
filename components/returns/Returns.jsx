@@ -565,7 +565,7 @@ export default function Returns({ returns = [], isLoaded = false, onRefresh, isA
       
       // ✅ Ensure we hit the correct endpoint directly via axios 
       // just like the POST request to avoid printerService misconfiguration/caching
-      let token = localStorage.getItem("pt_auth_token");
+      let token = sessionStorage.getItem("pt_auth_token");
 
       let rData;
       try {

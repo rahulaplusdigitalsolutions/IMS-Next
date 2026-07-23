@@ -31,14 +31,16 @@ export const GET = withErrorHandling(async (request) => {
     SELECT s.*, v.vendorFirmName as vendorName,
            IFNULL(SUM(d.stockInQty), 0) as totalQty,
            IFNULL(SUM(d.stockInQty * d.purchaseRate), 0) as totalAmount,
-           GROUP_CONCAT(DISTINCT IFNULL(i.itemName, m.name) SEPARATOR ', ') as itemNames,
+           GROUP_CONCAT(DISTINCT COALESCE(i.itemName, fbiv.variantName, mim.variantName) SEPARATOR ', ') as itemNames,
            COUNT(DISTINCT d.stockInDetailId) as itemTypeCount
     FROM inventorystockin s
     LEFT JOIN inventoryvendor v ON s.vendorId = v.vendorId
     LEFT JOIN inventorystockindetail d ON s.stockInId = d.stockInId AND d.isDeleted = 0
     LEFT JOIN inventoryitemvariant iv ON d.itemVariantId = iv.itemVariantId
     LEFT JOIN inventoryitemmaster i ON iv.itemId = i.itemId
-    LEFT JOIN models m ON d.modelGuid = m.guid
+    LEFT JOIN inventoryitemvariant fbiv ON d.modelGuid = fbiv.itemVariantId
+    LEFT JOIN model_itemvariant_map map ON d.modelGuid COLLATE utf8mb4_unicode_ci = map.modelGuid COLLATE utf8mb4_unicode_ci
+    LEFT JOIN inventoryitemvariant mim ON map.itemVariantId COLLATE utf8mb4_unicode_ci = mim.itemVariantId COLLATE utf8mb4_unicode_ci
     ${filterSql}
     GROUP BY s.stockInId
     ORDER BY s.invoiceDate DESC

@@ -290,7 +290,7 @@ const StockIn = ({ onRefresh, initialDayFilter = "all", initialCustomStart = "",
         pcs: Number(r.pcs || 1),
         rate: Number(r.rate || 0),
         amount: Number(r.amount || 0),
-        hasSerialNumber: r.hasSerialNumber === true || r.hasSerialNumber == 1,
+        hasSerialNumber: !!r.hasSerialNumber,
         serialCount: Number(r.serialCount || 0),
         rowColor: r.rowColor,
         tags: r.tags
@@ -346,7 +346,7 @@ const StockIn = ({ onRefresh, initialDayFilter = "all", initialCustomStart = "",
           pcs: Number(r.pcs || 1),
           rate: Number(r.rate || 0),
           amount: Number(r.amount || 0),
-          hasSerialNumber: r.hasSerialNumber === true || r.hasSerialNumber == 1,
+          hasSerialNumber: !!r.hasSerialNumber,
           serialCount: Number(r.serialCount || 0),
           rowColor: r.rowColor,
           tags: r.tags
@@ -508,7 +508,7 @@ const StockIn = ({ onRefresh, initialDayFilter = "all", initialCustomStart = "",
           pcs: 1,
           rate: Number(data.lastPurchaseRate || 0),
           amount: Number(data.lastPurchaseRate || 0),
-          hasSerialNumber: true,
+          hasSerialNumber: !!data.hasSerialNumber,
           serialCount: 0,
           tags: "Printer Model"
         };
@@ -571,7 +571,7 @@ const StockIn = ({ onRefresh, initialDayFilter = "all", initialCustomStart = "",
                pcs: Number(selectedUnit.baseUnitQty) || 1,
                rate: Number(data.lastPurchaseRate || 0),
                amount: Number(data.lastPurchaseRate || 0),
-               hasSerialNumber: data.hasSerialNumber === true || data.hasSerialNumber == 1,
+               hasSerialNumber: !!data.hasSerialNumber,
                serialCount: 0
             };
             updatedList.push(newItem);
@@ -978,7 +978,7 @@ const StockIn = ({ onRefresh, initialDayFilter = "all", initialCustomStart = "",
                    pcs: item.defaultPcsQty || 1,
                    rate: item.rate || 0,
                    amount: (item.qty || 1) * (item.rate || 0),
-                   hasSerialNumber: item.hasSerialNumber === true || item.hasSerialNumber == 1,
+                   hasSerialNumber: false, // Stock In always books as Current Stock (quantity) now — no serial tracking here
                    serialCount: 0
                 }));
                 
@@ -1124,7 +1124,7 @@ const StockIn = ({ onRefresh, initialDayFilter = "all", initialCustomStart = "",
                        formData.append("file", file);
                        try {
                          const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
-                         const res = await axios.post(`${apiBase}/Inventory/UploadInvoice`, formData, { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } });
+                         const res = await axios.post(`${apiBase}/Inventory/UploadInvoice`, formData, { headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` } });
                          setInvoiceFile(res.data.filePath);
                          Swal.fire("Success", "Invoice attached successfully", "success");
                          // Trigger an autosave if we have enough header info
@@ -1197,7 +1197,7 @@ const StockIn = ({ onRefresh, initialDayFilter = "all", initialCustomStart = "",
                             <span className="text-sm font-bold text-slate-800 tracking-tight leading-tight flex items-center gap-2">
                               {item.itemName} 
                               <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{item.variantCode}</span>
-                              {item.hasSerialNumber === 1 && (
+                              {item.hasSerialNumber && (
                                  <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">SERIALIZED</span>
                               )}
                             </span>

@@ -19,7 +19,9 @@ export default function OrderTrackingPage() {
 
   const userRole = currentUser?.role || "User";
   const isAdmin = userRole === "Admin";
-  const isSupervisor = userRole === "Supervisor";
+  // Gates "Edit Items & Serials" in the order detail modal — driven by the
+  // order-processing edit-flag (role-resolved), not a hardcoded role name.
+  const isSupervisor = isAdmin || !!currentUser?.allow_edit_order_processing;
 
   useEffect(() => {
     if (!dataStatus.orders) loadOrdersData();

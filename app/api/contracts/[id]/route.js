@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, authorizeReadWrite, ALL_AUTHENTICATED_ROLES, requireCompany, ApiError } from "@/lib/auth";
+import { authenticateRequest, authorizeReadWrite, requireCompany, ApiError } from "@/lib/auth";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 import { broadcastRealtimeEvent } from "@/lib/realtimeEvents";
 
@@ -13,10 +13,10 @@ const EDITABLE_FIELDS = [
 
 const authorize = (user, method) =>
   authorizeReadWrite(user, method, {
-    readRoles: ALL_AUTHENTICATED_ROLES,
-    writeRoles: ["Admin", "User", "Operator", "Supervisor"],
-    deleteRoles: ["Admin"],
-    denyMessage: "Only Admin or Operators can manage contracts.",
+    permission: "orders",
+    editColumnName: "allow_edit_order_processing",
+    adminOnlyDelete: true,
+    denyMessage: "You do not have permission to manage contracts.",
   });
 
 export const PUT = withErrorHandling(async (request, { params }) => {

@@ -22,15 +22,15 @@ const handleReplace = withErrorHandling(async (request, { params }) => {
   if (!dispRows.length) throw new ApiError(404, "Order not found");
   const dispatch = dispRows[0];
 
-  const [newSer] = await mysqlPool.query("SELECT * FROM serials WHERE guid=? AND isDeleted=0 AND companyGuid=?", [targetSerialId, user.companyId]);
+  const [newSer] = await mysqlPool.query("SELECT *, serialStatus as status, serialNumber as value FROM inventorystockinserial WHERE guid=? AND isDeleted=0 AND companyGuid=?", [targetSerialId, user.companyId]);
   if (!newSer.length) throw new ApiError(404, "New serial not found");
   if (newSer[0].status !== "Available") throw new ApiError(400, "New serial is not Available");
 
-  const [oldSer] = await mysqlPool.query("SELECT value FROM serials WHERE guid=? AND companyGuid=?", [dispatch.serialNumberGuid, user.companyId]);
+  const [oldSer] = await mysqlPool.query("SELECT serialNumber as value FROM inventorystockinserial WHERE guid=? AND companyGuid=?", [dispatch.serialNumberGuid, user.companyId]);
   const oldValue = oldSer[0]?.value || "Unknown";
 
-  await mysqlPool.query("UPDATE serials SET status=? WHERE guid=? AND companyGuid=?", [condition === "Damaged" ? "Damaged" : "Available", dispatch.serialNumberGuid, user.companyId]);
-  await mysqlPool.query("UPDATE serials SET status='Dispatched' WHERE guid=? AND companyGuid=?", [targetSerialId, user.companyId]);
+  await mysqlPool.query("UPDATE inventorystockinserial SET serialStatus=? WHERE guid=? AND companyGuid=?", [condition === "Damaged" ? "Damaged" : "Available", dispatch.serialNumberGuid, user.companyId]);
+  await mysqlPool.query("UPDATE inventorystockinserial SET serialStatus='Dispatched' WHERE guid=? AND companyGuid=?", [targetSerialId, user.companyId]);
   await mysqlPool.query("UPDATE order_items SET serialNumberGuid=?,remarks=? WHERE guid=? AND companyGuid=?", [targetSerialId, reason, id, user.companyId]);
 
   const isMarketplace = dispatch.firmName === "Amazon" || dispatch.firmName === "Flipkart";

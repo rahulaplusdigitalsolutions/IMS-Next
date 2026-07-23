@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, authorizeReadWrite, ALL_AUTHENTICATED_ROLES, requireCompany, resolveScopedCompanyGuid } from "@/lib/auth";
+import { authenticateRequest, authorizeReadWrite, requireCompany, resolveScopedCompanyGuid } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiResponse";
 
 export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   requireCompany(user);
-  authorizeReadWrite(user, "GET", { readRoles: ALL_AUTHENTICATED_ROLES, writeRoles: [], denyMessage: "You do not have access to dashboard data." });
+  authorizeReadWrite(user, "GET", { permission: "dashboard", denyMessage: "You do not have access to dashboard data." });
 
   // cid === null means the caller is authorized to see every company combined
   // (Dashboard's "All Companies" filter) — every clause below becomes a no-op.
@@ -14,10 +14,10 @@ export const GET = withErrorHandling(async (request) => {
   const w = (alias) => (cid ? `AND ${alias}.companyGuid=?` : "");
   const p = (n) => (cid ? Array(n).fill(cid) : []);
 
-  const [[{ totalModels }]] = await mysqlPool.query(`SELECT COUNT(*) as totalModels FROM models WHERE isDeleted=0 ${w("models")}`, p(1));
-  const [[{ totalSerials }]] = await mysqlPool.query(`SELECT COUNT(*) as totalSerials FROM serials WHERE isDeleted=0 ${w("serials")}`, p(1));
-  const [[{ availableSerials }]] = await mysqlPool.query(`SELECT COUNT(*) as availableSerials FROM serials WHERE status='Available' AND isDeleted=0 ${w("serials")}`, p(1));
-  const [[{ dispatchedSerials }]] = await mysqlPool.query(`SELECT COUNT(*) as dispatchedSerials FROM serials WHERE status='Dispatched' AND isDeleted=0 ${w("serials")}`, p(1));
+  const [[{ totalModels }]] = await mysqlPool.query(`SELECT COUNT(*) as totalModels FROM inventoryitemvariant WHERE isDeleted=0 ${w("inventoryitemvariant")}`, p(1));
+  const [[{ totalSerials }]] = await mysqlPool.query(`SELECT COUNT(*) as totalSerials FROM inventorystockinserial WHERE isDeleted=0 ${w("inventorystockinserial")}`, p(1));
+  const [[{ availableSerials }]] = await mysqlPool.query(`SELECT COUNT(*) as availableSerials FROM inventorystockinserial WHERE serialStatus='Available' AND isDeleted=0 ${w("inventorystockinserial")}`, p(1));
+  const [[{ dispatchedSerials }]] = await mysqlPool.query(`SELECT COUNT(*) as dispatchedSerials FROM inventorystockinserial WHERE serialStatus='Dispatched' AND isDeleted=0 ${w("inventorystockinserial")}`, p(1));
   const [[{ totalDispatches }]] = await mysqlPool.query(`SELECT COUNT(oi.guid) as totalDispatches FROM order_items oi JOIN orders o ON oi.orderGuid=o.guid WHERE o.isDeleted=0 ${w("o")} ${w("oi")}`, p(2));
   const [[{ recentDispatches }]] = await mysqlPool.query(`SELECT COUNT(oi.guid) as recentDispatches FROM order_items oi JOIN orders o ON oi.orderGuid=o.guid WHERE o.dispatchDate>=DATE_SUB(NOW(),INTERVAL 30 DAY) AND o.isDeleted=0 ${w("o")} ${w("oi")}`, p(2));
   const [[{ totalReturns }]] = await mysqlPool.query(`SELECT COUNT(*) as totalReturns FROM returns WHERE isDeleted=0 ${w("returns")}`, p(1));

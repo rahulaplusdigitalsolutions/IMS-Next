@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany } from "@/lib/auth";
 import { authorizeInventory } from "@/lib/inventoryAuth";
 import { withErrorHandling } from "@/lib/apiResponse";
 
@@ -8,6 +8,7 @@ export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   authorizeInventory(user, "GET");
   requireAuth(user);
+  requireCompany(user);
 
   const { searchParams } = new URL(request.url);
   const page = parseInt(searchParams.get("page")) || 1;
@@ -16,10 +17,10 @@ export const GET = withErrorHandling(async (request) => {
   const categoryId = searchParams.get("categoryId");
 
   const whereCategory = categoryId ? "AND i.categoryId = ?" : "";
-  const countParams = categoryId ? [categoryId] : [];
+  const countParams = [user.companyId, ...(categoryId ? [categoryId] : [])];
 
   const [countRows] = await mysqlPool.query(
-    `SELECT COUNT(*) as total FROM inventoryitemmaster i WHERE i.isDeleted = 0 ${whereCategory}`,
+    `SELECT COUNT(*) as total FROM inventoryitemmaster i WHERE i.isDeleted = 0 AND i.companyGuid = ? ${whereCategory}`,
     countParams
   );
   const [rows] = await mysqlPool.query(`
@@ -28,7 +29,7 @@ export const GET = withErrorHandling(async (request) => {
     LEFT JOIN inventorycategorymaster c ON i.categoryId = c.categoryId
     LEFT JOIN inventorybrandmaster b ON i.brandId = b.brandId
     LEFT JOIN inventoryunitmaster u ON i.unitId = u.unitId
-    WHERE i.isDeleted = 0 ${whereCategory}
+    WHERE i.isDeleted = 0 AND i.companyGuid = ? ${whereCategory}
     ORDER BY c.categoryName ASC, i.itemName ASC
     LIMIT ? OFFSET ?
   `, [...countParams, limit, offset]);

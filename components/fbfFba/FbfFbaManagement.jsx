@@ -127,11 +127,11 @@ export default function FbfFbaManagement({ isAdmin, currentUser }) {
       .filter((serial) => !hiddenSerialStatuses.has(serial.status))
       .filter((serial) => {
         if (activeView === 'sell_stock' && formData.modelGuid) {
-          return String(serial.modelGuid) === String(formData.modelGuid);
+          return String(serial.itemVariantId) === String(formData.modelGuid);
         }
         return true;
       })
-      .filter((serial) => !serialModelFilter || String(serial.modelGuid) === String(serialModelFilter))
+      .filter((serial) => !serialModelFilter || String(serial.itemVariantId) === String(serialModelFilter))
       .sort((a, b) => String(a.value || a.serialNumber).localeCompare(String(b.value || b.serialNumber)));
   }, [formData.modelGuid, serials, stockCategory, serialModelFilter, activeView]);
 
@@ -263,11 +263,11 @@ export default function FbfFbaManagement({ isAdmin, currentUser }) {
 
       setSaving(true);
       try {
-        // Group by modelGuid
+        // Group by itemVariantId
         const groups = {};
         for (const serial of selectedSerials) {
-          if (!groups[serial.modelGuid]) groups[serial.modelGuid] = [];
-          groups[serial.modelGuid].push(serial.value || serial.serialNumber);
+          if (!groups[serial.itemVariantId]) groups[serial.itemVariantId] = [];
+          groups[serial.itemVariantId].push(serial.value || serial.serialNumber);
         }
 
         let totalAdded = 0;
@@ -432,7 +432,7 @@ export default function FbfFbaManagement({ isAdmin, currentUser }) {
     }
 
     if (!formData.modelGuid && activeView === 'sell_stock') {
-      const matchedModel = models.find(m => String(m.guid) === String(serial.modelGuid));
+      const matchedModel = models.find(m => String(m.guid) === String(serial.itemVariantId));
       if (matchedModel) {
         setFormData(prev => ({
           ...prev,
@@ -530,7 +530,7 @@ export default function FbfFbaManagement({ isAdmin, currentUser }) {
 
   if (activeView === 'add_stock') {
     return (
-      <div className="space-y-6 mx-auto pb-20 animate-in fade-in zoom-in-95 duration-300">
+      <div className="w-full space-y-6 pb-20 animate-in fade-in zoom-in-95 duration-300">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-black tracking-tight text-slate-950">Add Stock to {activeTab}</h1>
@@ -547,7 +547,7 @@ export default function FbfFbaManagement({ isAdmin, currentUser }) {
           </button>
         </div>
 
-        <form onSubmit={handleAddStock} className="max-w-8xl mx-auto space-y-6">
+        <form onSubmit={handleAddStock} className="w-full space-y-6">
 
           {/* Step 1: Location */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
@@ -743,7 +743,7 @@ export default function FbfFbaManagement({ isAdmin, currentUser }) {
                                   <div className="min-w-0">
                                     <div className="truncate font-mono text-xs font-bold text-slate-800">{serialValue}</div>
                                     <div className="truncate text-[10px] font-medium text-slate-500">
-                                      {models.find(m => String(m.guid) === String(serial.modelGuid))?.name || 'Unknown Model'}
+                                      {models.find(m => String(m.guid) === String(serial.itemVariantId))?.name || 'Unknown Model'}
                                     </div>
                                   </div>
                                   <button

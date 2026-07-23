@@ -25,7 +25,7 @@ const VariantBarcode = () => {
   const [defaultQty, setDefaultQty] = useState(0);
 
   const getHeaders = () => {
-    const token = localStorage.getItem("pt_auth_token");
+    const token = sessionStorage.getItem("pt_auth_token");
     return {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,

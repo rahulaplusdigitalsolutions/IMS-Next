@@ -19,19 +19,16 @@ export default function BrandMaster() {
       deleteConfirm={{ text: "This brand will be deactivated" }}
       fields={[
         { key: "name", label: "Brand Name", placeholder: "Enter Brand Name", required: true },
-        { key: "showInModels", label: "Show in Models", type: "checkbox" },
       ]}
       columns={[
         { key: "brandName", label: "Brand Name" },
-        { key: "showInModels", label: "Show in Models", render: (row) => row.showInModels ? "Yes" : "No" },
       ]}
       buildPayload={(id, values) => ({
         BrandId: id || "0",
         BrandName: (values.name || "").trim(),
-        ShowInModels: !!values.showInModels,
       })}
       deletePayload={(id) => ({ brandId: id })}
-      mapEditValues={(row) => ({ name: row.brandName || "", showInModels: !!row.showInModels })}
+      mapEditValues={(row) => ({ name: row.brandName || "" })}
     />
   );
 }

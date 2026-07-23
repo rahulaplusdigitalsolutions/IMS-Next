@@ -26,11 +26,13 @@ export const GET = withErrorHandling(async (request, { params }) => {
 
   const [items] = await mysqlPool.query(`
     SELECT oi.sellingPrice, oi.quantity,
-           s.value AS serialValue,
-           m.name  AS modelName, m.company AS companyName
+           s.serialNumber AS serialValue,
+           fbiv.variantName  AS modelName, fbbm.brandName AS companyName
     FROM order_items oi
-    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid AND s.companyGuid = oi.companyGuid
-    LEFT JOIN models  m ON s.modelGuid = m.guid AND m.companyGuid = oi.companyGuid
+    LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid = s.guid AND s.companyGuid = oi.companyGuid
+    LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId = fbiv.itemVariantId AND fbiv.companyGuid = oi.companyGuid
+    LEFT JOIN inventoryitemmaster fbim ON fbiv.itemId = fbim.itemId AND fbim.companyGuid = oi.companyGuid
+    LEFT JOIN inventorybrandmaster fbbm ON fbim.brandId = fbbm.brandId AND fbbm.companyGuid = oi.companyGuid
     WHERE oi.orderGuid = ? AND oi.companyGuid = ?
     ORDER BY oi.guid ASC
   `, [orderGuid, user.companyId]);

@@ -116,7 +116,10 @@ export default function Billing({
             if (activeTab === "billing") {
                 return d.status === "Send for Billing" || d.status === "Send for Billing (Hold)";
             } else if (activeTab === "draft") {
-                return d.status === "Draft";
+                // Once a draft order's bill has been uploaded/prepped, it drops
+                // off this list — it's done from Billing's side and just
+                // waits on Order Processing's Confirm step now.
+                return d.status === "Draft" && !d.invoiceFilename;
             } else {
                 return d.status === "Payment Pending" || (d.logisticsStatus === "Delivered" && d.status !== "Completed");
             }
@@ -289,7 +292,7 @@ export default function Billing({
         const res = await axios.post(`${API_BASE_URL}/api/ai/parse-file`, {
             fileBase64: base64,
             mimeType: file.type
-        }, { headers: { Authorization: `Bearer ${localStorage.getItem("pt_auth_token")}` } });
+        }, { headers: { Authorization: `Bearer ${sessionStorage.getItem("pt_auth_token")}` } });
         return res.data || {};
     };
 
@@ -563,7 +566,7 @@ export default function Billing({
                 utrId: paymentForm.utrId,
                 status: "Completed",
                 gemBillUploaded: showGemUpload ? paymentForm.gemUploaded : undefined
-            }, { headers: { Authorization: `Bearer ${localStorage.getItem("pt_auth_token")}` } });
+            }, { headers: { Authorization: `Bearer ${sessionStorage.getItem("pt_auth_token")}` } });
 
             alert("Payment recorded successfully! Orders moved to Completed.");
             setPaymentBatch(null);

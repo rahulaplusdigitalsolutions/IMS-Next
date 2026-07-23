@@ -12,20 +12,6 @@ export const GET = withErrorHandling(async (request) => {
   const code = new URL(request.url).searchParams.get("code");
   const [rows] = await mysqlPool.query(`
     SELECT
-      NULL as itemVariantId,
-      m.name as variantCode,
-      m.name as itemName,
-      NULL as unitName,
-      1 as hasSerialNumber,
-      IFNULL(m.mrp, 0) as lastPurchaseRate,
-      m.guid as modelGuid,
-      1 as isModelItem
-    FROM models m
-    WHERE m.barcode = ? AND m.isDeleted = 0
-
-    UNION ALL
-
-    SELECT
       vb.itemVariantId,
       v.variantName as variantCode,
       i.itemName,
@@ -40,6 +26,6 @@ export const GET = withErrorHandling(async (request) => {
     LEFT JOIN inventoryunitmaster u ON i.unitId = u.unitId
     LEFT JOIN inventoryvariantstock s ON v.itemVariantId = s.itemVariantId
     WHERE vb.barcode = ? AND v.isDeleted = 0
-  `, [code, code]);
+  `, [code]);
   return NextResponse.json({ data: rows, message: "Success" });
 });

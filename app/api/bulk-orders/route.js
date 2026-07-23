@@ -22,7 +22,7 @@ export const POST = withErrorHandling(async (request) => {
     );
     for (const sId of serialIds) {
       await conn.query("INSERT INTO bulkorderitems (orderGuid,serialNumberGuid,itemStatus) VALUES (?,?,'Active')", [orderGuid, sId]);
-      await conn.query("UPDATE serials SET status='Dispatched' WHERE guid=?", [sId]);
+      await conn.query("UPDATE inventorystockinserial SET serialStatus='Dispatched' WHERE guid=?", [sId]);
     }
     if (invoice?.invoiceNumber) await conn.query("INSERT INTO bulkorderinvoices (orderGuid,invoiceNumber,ewayBillNumber) VALUES (?,?,?)", [orderGuid, invoice.invoiceNumber, invoice.ewayBillNumber || null]);
     if (dispatch?.trackingId) await conn.query("INSERT INTO bulkorderdispatches (orderGuid,trackingId,courierPartner,logisticsStatus) VALUES (?,?,?,'Dispatched')", [orderGuid, dispatch.trackingId, dispatch.courierPartner || null]);

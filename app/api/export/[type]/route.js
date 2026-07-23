@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, authorizeReadWrite, ALL_AUTHENTICATED_ROLES, ApiError } from "@/lib/auth";
+import { authenticateRequest, authorizeReadWrite, ApiError } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiResponse";
 
 export const GET = withErrorHandling(async (request, { params }) => {
   const user = await authenticateRequest(request);
-  authorizeReadWrite(user, "GET", { readRoles: ALL_AUTHENTICATED_ROLES, writeRoles: [], denyMessage: "You do not have access to exports." });
+  authorizeReadWrite(user, "GET", { permission: "dashboard", denyMessage: "You do not have access to exports." });
   const { type } = await params;
 
   const { searchParams } = new URL(request.url);
@@ -18,21 +18,31 @@ export const GET = withErrorHandling(async (request, { params }) => {
   switch (type) {
     case "models":
       query = `
-        SELECT m.name, m.company, m.category, m.colorType, m.printerType, m.description, m.mrp, m.stockQuantity, m.packagingCost,
-          COUNT(s.guid) as totalSerials, SUM(CASE WHEN s.status='Available' THEN 1 ELSE 0 END) as availableSerials
-        FROM models m LEFT JOIN serials s ON m.guid=s.modelGuid AND s.isDeleted=0
-        WHERE m.isDeleted=0 GROUP BY m.guid, m.name, m.company, m.category, m.colorType, m.printerType, m.description, m.mrp, m.stockQuantity, m.packagingCost
-        ORDER BY m.name
+        SELECT itv.variantName as name, b.brandName as company, c.categoryName as category,
+          itv.colorType, itv.printerType, i.itemName as description, itv.sellingPrice as mrp, 0 as stockQuantity, itv.packagingCost,
+          COUNT(s.guid) as totalSerials, SUM(CASE WHEN s.serialStatus='Available' THEN 1 ELSE 0 END) as availableSerials
+        FROM inventoryitemvariant itv
+        LEFT JOIN inventoryitemmaster i ON itv.itemId=i.itemId
+        LEFT JOIN inventorybrandmaster b ON i.brandId=b.brandId
+        LEFT JOIN inventorycategorymaster c ON i.categoryId=c.categoryId
+        LEFT JOIN inventorystockinserial s ON s.itemVariantId=itv.itemVariantId AND s.isDeleted=0
+        WHERE itv.isDeleted=0 GROUP BY itv.itemVariantId, itv.variantName, b.brandName, c.categoryName, itv.colorType, itv.printerType, i.itemName, itv.sellingPrice, itv.packagingCost
+        ORDER BY itv.variantName
       `;
       filename = "models";
       break;
 
     case "serials":
+      // NOTE: mrp previously came from the legacy `models` table (COALESCE(m.mrp, 0)).
+      // inventoryitemvariant has no equivalent mrp column, so this is now always 0.
       query = `
-        SELECT s.value as serialNumber, m.name as modelName, m.company, s.landingPrice, m.mrp,
-          s.landingPriceReason, s.status, s.createdAt
-        FROM serials s JOIN models m ON s.modelGuid=m.guid
-        WHERE s.isDeleted=0 AND m.isDeleted=0 ORDER BY s.createdAt DESC
+        SELECT s.serialNumber as serialNumber, fbiv.variantName as modelName, fbbm.brandName as company, s.landingPrice, 0 as mrp,
+          s.landingPriceReason, s.serialStatus as status, s.createdAt
+        FROM inventorystockinserial s
+        LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId=fbiv.itemVariantId AND fbiv.isDeleted=0
+        LEFT JOIN inventoryitemmaster fbim ON fbiv.itemId=fbim.itemId AND fbim.isDeleted=0
+        LEFT JOIN inventorybrandmaster fbbm ON fbim.brandId=fbbm.brandId AND fbbm.isDeleted=0
+        WHERE s.isDeleted=0 ORDER BY s.createdAt DESC
       `;
       filename = "serials";
       break;
@@ -41,14 +51,16 @@ export const GET = withErrorHandling(async (request, { params }) => {
       query = `
         SELECT o.dispatchDate, o.platform AS firmName, o.orderid as customer,
           COALESCE(o.address,o.shippingAddress) as address,
-          oi.sellingPrice, o.packagingCost, o.commission, s.value as serialNumber,
-          m.name as modelName, m.company, o.status, ins.installationRequired, ins.installationStatus,
+          oi.sellingPrice, o.packagingCost, o.commission, s.serialNumber as serialNumber,
+          fbiv.variantName as modelName, fbbm.brandName as company, o.status, ins.installationRequired, ins.installationStatus,
           ol.courierPartner, ol.trackingId, o.freightCharges, ol.logisticsStatus, o.ewayBillFilename
         FROM order_items oi JOIN orders o ON oi.orderGuid=o.guid
         LEFT JOIN order_logistics ol ON o.guid=ol.orderGuid
         LEFT JOIN order_installations ins ON o.guid=ins.orderGuid
-        LEFT JOIN serials s ON oi.serialNumberGuid=s.guid
-        LEFT JOIN models m ON s.modelGuid=m.guid
+        LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid=s.guid
+        LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId=fbiv.itemVariantId AND fbiv.isDeleted=0
+        LEFT JOIN inventoryitemmaster fbim ON fbiv.itemId=fbim.itemId AND fbim.isDeleted=0
+        LEFT JOIN inventorybrandmaster fbbm ON fbim.brandId=fbbm.brandId AND fbbm.isDeleted=0
         WHERE o.isDeleted=0
       `;
       if (startDate && endDate) {
@@ -61,9 +73,11 @@ export const GET = withErrorHandling(async (request, { params }) => {
 
     case "returns":
       query = `
-        SELECT r.returnDate, s.value as serialNumber, m.name as modelName, r.condition,
+        SELECT r.returnDate, s.serialNumber as serialNumber, fbiv.variantName as modelName, r.condition,
           r.dispatchGuid as orderId, r.invoiceNumber, r.reason
-        FROM returns r JOIN serials s ON r.serialNumberGuid=s.guid JOIN models m ON s.modelGuid=m.guid
+        FROM returns r
+        JOIN inventorystockinserial s ON r.serialNumberGuid=s.guid
+        LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId=fbiv.itemVariantId AND fbiv.isDeleted=0
         WHERE r.isDeleted=0 ORDER BY r.returnDate DESC
       `;
       filename = "returns";

@@ -31,7 +31,7 @@ export const PUT = withErrorHandling(async (request) => {
         if (cr.length) creatorGuid = String(cr[0].userid);
       }
       await createNotification(mysqlPool, { targetRole: "Admin", title: "Order Sent Back to Billing", message: `Order ${orderId} sent back to billing. Reason: ${remarks}`, type: "warning", link: "/billing", companyGuid: user.companyId });
-      await createNotification(mysqlPool, { targetRole: "Accountant", title: "Order Sent Back to Billing", message: `Order ${orderId} sent back by Dispatch. Reason: ${remarks}`, type: "warning", link: "/billing", companyGuid: user.companyId });
+      await createNotification(mysqlPool, { targetEditFlag: "allow_edit_billing", title: "Order Sent Back to Billing", message: `Order ${orderId} sent back by Dispatch. Reason: ${remarks}`, type: "warning", link: "/billing", companyGuid: user.companyId });
       if (creatorGuid) await createNotification(mysqlPool, { targetUserGuid: creatorGuid, title: "Order Sent Back to Billing", message: `Order ${orderId} has been sent back to billing. Reason: ${remarks}`, type: "warning", link: "/billing", companyGuid: user.companyId });
     }
 

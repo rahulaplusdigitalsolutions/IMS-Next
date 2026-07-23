@@ -19,7 +19,7 @@ export const GET = withErrorHandling(async (request) => {
 
   const companyGuid = resolveScopedCompanyGuid(user, request);
   const c = (alias) => (companyGuid ? `AND ${alias}.companyGuid = ?` : "");
-  const params = companyGuid ? Array(7).fill(companyGuid) : [];
+  const params = companyGuid ? Array(9).fill(companyGuid) : [];
   if (companyGuid) params.push(companyGuid); // oi.companyGuid, in the WHERE
   params.push(includeDeleted);
   if (companyGuid) params.push(companyGuid); // o.companyGuid, in the WHERE
@@ -37,15 +37,17 @@ export const GET = withErrorHandling(async (request) => {
         ol.courierPartner, ol.trackingId, ol.logisticsStatus, ol.logisticsDispatchDate, ol.podFilename, ol.lastDeliveryDate,
         ins.installationRequired, ins.installationStatus, ins.technicianName, ins.technicianContact,
         ins.installationCharges, ins.installationRemarks, ins.scheduledDate, ins.installationDate,
-        s.value as serialValue, s.landingPrice,
-        m.name as modelName, m.company as companyName, m.category as modelCategory,
+        s.serialNumber as serialValue, s.landingPrice,
+        fbiv.variantName as modelName, fbbm.brandName as companyName,
         p.paymentDate as paymentReceivedDate, p.amount as paymentReceivedAmount, p.utrId
     FROM order_items oi
     JOIN orders o ON oi.orderGuid = o.guid ${c("o")}
     LEFT JOIN order_logistics ol ON o.guid = ol.orderGuid ${c("ol")}
     LEFT JOIN order_installations ins ON o.guid = ins.orderGuid ${c("ins")}
-    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid ${c("s")}
-    LEFT JOIN models m ON s.modelGuid = m.guid ${c("m")}
+    LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid = s.guid ${c("s")}
+    LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId = fbiv.itemVariantId ${c("fbiv")}
+    LEFT JOIN inventoryitemmaster fbim ON fbiv.itemId = fbim.itemId ${c("fbim")}
+    LEFT JOIN inventorybrandmaster fbbm ON fbim.brandId = fbbm.brandId ${c("fbbm")}
     LEFT JOIN (
         SELECT p1.dispatchGuid, p1.paymentDate, p1.amount, p1.utrId
         FROM payments p1
@@ -223,7 +225,7 @@ export const DELETE = withErrorHandling(async (request) => {
     const conn = await mysqlPool.getConnection();
     try {
       const [[item]] = await conn.query(
-        "SELECT oi.guid, oi.orderGuid, oi.serialNumberGuid, s.value as serialValue, o.platform, o.orderid FROM order_items oi LEFT JOIN serials s ON oi.serialNumberGuid=s.guid AND s.companyGuid=? LEFT JOIN orders o ON oi.orderGuid=o.guid AND o.companyGuid=? WHERE oi.guid=? AND oi.companyGuid=? LIMIT 1",
+        "SELECT oi.guid, oi.orderGuid, oi.serialNumberGuid, s.serialNumber as serialValue, o.platform, o.orderid FROM order_items oi LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid=s.guid AND s.companyGuid=? LEFT JOIN orders o ON oi.orderGuid=o.guid AND o.companyGuid=? WHERE oi.guid=? AND oi.companyGuid=? LIMIT 1",
         [user.companyId, user.companyId, id, user.companyId]
       );
       if (!item) {
@@ -236,7 +238,7 @@ export const DELETE = withErrorHandling(async (request) => {
       await conn.beginTransaction();
 
       if (item.serialNumberGuid) {
-        await conn.query("UPDATE serials SET status='Available' WHERE guid=? AND companyGuid=?", [item.serialNumberGuid, user.companyId]);
+        await conn.query("UPDATE inventorystockinserial SET serialStatus='Available' WHERE guid=? AND companyGuid=?", [item.serialNumberGuid, user.companyId]);
       }
 
       await conn.query("DELETE FROM payments WHERE dispatchGuid=? AND companyGuid=?", [id, user.companyId]);

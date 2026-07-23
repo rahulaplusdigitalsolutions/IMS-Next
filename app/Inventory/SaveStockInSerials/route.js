@@ -23,8 +23,6 @@ export const POST = withErrorHandling(async (request) => {
     await connection.beginTransaction();
     try {
       for (const sn of serialNumbers) {
-        const [dupSerial] = await connection.query("SELECT value FROM serials WHERE value = ? AND isDeleted = 0 FOR UPDATE", [sn]);
-        if (dupSerial.length > 0) throw new Error(`Serial Number ${sn} already exists`);
         const [dupStockIn] = await connection.query("SELECT serialNumber FROM inventorystockinserial WHERE serialNumber = ? AND isDeleted = 0 FOR UPDATE", [sn]);
         if (dupStockIn.length > 0) throw new Error(`Serial Number ${sn} already exists`);
       }

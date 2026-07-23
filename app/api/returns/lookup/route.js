@@ -15,15 +15,18 @@ export const GET = withErrorHandling(async (request) => {
   const normalized = raw.trim().toUpperCase();
 
   const [serials] = await mysqlPool.query(`
-    SELECT s.*, m.name as modelName, m.company as companyName,
+    SELECT s.*, fbiv.variantName as modelName, fbbm.brandName as companyName,
            lr.reason as latestReturnReason, lr.condition as latestReturnCondition
-    FROM serials s LEFT JOIN models m ON s.modelGuid=m.guid
+    FROM inventorystockinserial s
+    LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId=fbiv.itemVariantId
+    LEFT JOIN inventoryitemmaster fbim ON fbiv.itemId=fbim.itemId
+    LEFT JOIN inventorybrandmaster fbbm ON fbim.brandId=fbbm.brandId
     LEFT JOIN (
       SELECT r1.serialNumberGuid, r1.reason, r1.condition FROM returns r1
       JOIN (SELECT serialNumberGuid, MAX(returnDate) as maxDate, MAX(guid) as maxId FROM returns WHERE isDeleted=0 GROUP BY serialNumberGuid) r2
       ON r1.serialNumberGuid=r2.serialNumberGuid AND r1.returnDate=r2.maxDate AND r1.guid=r2.maxId
     ) lr ON s.guid=lr.serialNumberGuid
-    WHERE s.value=? AND s.isDeleted=0
+    WHERE s.serialNumber=? AND s.isDeleted=0
   `, [normalized]);
 
   if (!serials.length) throw new ApiError(404, "Serial not found");
@@ -40,9 +43,10 @@ export const GET = withErrorHandling(async (request) => {
            ol.courierPartner, ol.trackingId, ol.logisticsStatus, ol.logisticsDispatchDate, ol.podFilename, ol.lastDeliveryDate,
            ins.installationRequired, ins.installationStatus, ins.technicianName, ins.technicianContact,
            ins.installationCharges, ins.installationRemarks, ins.scheduledDate, ins.installationDate,
-           m.name as modelName, s.value as serialValue
+           fbiv2.variantName as modelName, s.serialNumber as serialValue
     FROM order_items oi JOIN orders o ON oi.orderGuid=o.guid
-    JOIN serials s ON oi.serialNumberGuid=s.guid JOIN models m ON s.modelGuid=m.guid
+    JOIN inventorystockinserial s ON oi.serialNumberGuid=s.guid
+    LEFT JOIN inventoryitemvariant fbiv2 ON s.itemVariantId=fbiv2.itemVariantId
     LEFT JOIN order_logistics ol ON o.guid=ol.orderGuid LEFT JOIN order_installations ins ON o.guid=ins.orderGuid
     WHERE oi.serialNumberGuid=? AND o.isDeleted=0
     ORDER BY o.dispatchDate DESC, oi.guid DESC LIMIT 1
@@ -57,7 +61,7 @@ export const GET = withErrorHandling(async (request) => {
 
   return NextResponse.json({
     ...serial,
-    canReturn: serial.status === "Dispatched" && !!linkedOrder && !existingReturn,
+    canReturn: serial.serialStatus === "Dispatched" && !!linkedOrder && !existingReturn,
     linkedOrder: linkedOrder ? mapDispatchRow(linkedOrder) : null,
     existingReturnForLinkedOrder: existingReturn,
     smartWarning: serial.returnCount > 0

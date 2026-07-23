@@ -22,8 +22,10 @@ export default function DispatchPage() {
 
   const userRole = currentUser?.role || "User";
   const isAdmin = userRole === "Admin";
-  const isSupervisor = userRole === "Supervisor";
-  const isAccountant = userRole === "Accountant";
+  // "reports" permission (resolved from the user's role, not a hardcoded
+  // role name) gates cost/financial visibility here — Supervisor/Accountant
+  // tier by default, same as the Dashboard's equivalent split.
+  const hasReportsAccess = isAdmin || !!currentUser?.permissions?.includes("reports");
 
   const handleUpdate = useCallback(
     async (ids, updatedData) => {
@@ -60,8 +62,8 @@ export default function DispatchPage() {
       onRestore={handleRestore}
       onRefresh={refreshData}
       isAdmin={isAdmin}
-      isSupervisor={isSupervisor}
-      isAccountant={isAccountant}
+      isSupervisor={hasReportsAccess}
+      isAccountant={hasReportsAccess}
       initialDayFilter={initialDayFilter}
       initialCustomStart={initialCustomStart}
       initialCustomEnd={initialCustomEnd}

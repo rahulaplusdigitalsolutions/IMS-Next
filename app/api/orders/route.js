@@ -11,7 +11,7 @@ export const GET = withErrorHandling(async (request) => {
   authorizeOrdersRequest(user, "GET", new URL(request.url).pathname, null);
 
   const cId = user.companyId;
-  const [orders] = await mysqlPool.query(ORDER_SELECT + " WHERE oi.companyGuid = ? AND o.companyGuid = ? ORDER BY o.dispatchDate DESC", [cId, cId, cId, cId, cId, cId, cId, cId, cId]);
+  const [orders] = await mysqlPool.query(ORDER_SELECT + " WHERE oi.companyGuid = ? AND o.companyGuid = ? ORDER BY o.dispatchDate DESC", Array(10).fill(cId));
   const [docs] = await mysqlPool.query("SELECT dispatchGuid as dispatchId, docType, filename, createdAt FROM orderdocuments WHERE companyGuid = ? ORDER BY createdAt ASC", [cId]);
   const docsMap = {};
   docs.forEach((d) => { if (!docsMap[d.dispatchId]) docsMap[d.dispatchId] = []; docsMap[d.dispatchId].push(d); });

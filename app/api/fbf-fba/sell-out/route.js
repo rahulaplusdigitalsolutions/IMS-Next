@@ -49,13 +49,11 @@ export const POST = withErrorHandling(async (request) => {
 
     let soldSerials = [];
     if (isSerialized) {
-      const [model] = await connection.query("SELECT isSerialized FROM models WHERE guid = ? AND companyGuid = ?", [safeModelId, user.companyId]);
-
       let availableSerials;
       if (requestedSerialNumbers.length > 0) {
         const [matched] = await connection.query(`
-          SELECT guid, value FROM serials
-          WHERE modelGuid = ? AND status = ? AND isDeleted = 0 AND value IN (?) AND companyGuid = ?
+          SELECT guid, serialNumber as value FROM inventorystockinserial
+          WHERE itemVariantId = ? AND serialStatus = ? AND isDeleted = 0 AND serialNumber IN (?) AND companyGuid = ?
           FOR UPDATE
         `, [safeModelId, type, requestedSerialNumbers, user.companyId]);
         if (matched.length !== requestedSerialNumbers.length) {
@@ -66,20 +64,20 @@ export const POST = withErrorHandling(async (request) => {
         availableSerials = matched;
       } else {
         const [fifo] = await connection.query(`
-          SELECT guid, value FROM serials
-          WHERE modelGuid = ? AND status = ? AND isDeleted = 0 AND companyGuid = ?
+          SELECT guid, serialNumber as value FROM inventorystockinserial
+          WHERE itemVariantId = ? AND serialStatus = ? AND isDeleted = 0 AND companyGuid = ?
           ORDER BY createdAt ASC LIMIT ?
           FOR UPDATE
         `, [safeModelId, type, user.companyId, safeQuantity]);
         availableSerials = fifo;
       }
 
-      if (model[0]?.isSerialized && availableSerials.length < safeQuantity) throw new Error("Not enough serialized units found");
+      if (availableSerials.length < safeQuantity) throw new Error("Not enough serialized units found");
 
       soldSerials = availableSerials.map((s) => s.value);
       const serialIds = availableSerials.map((s) => s.guid);
 
-      await connection.query("UPDATE serials SET status = 'Sold' WHERE guid IN (?) AND companyGuid = ?", [serialIds, user.companyId]);
+      await connection.query("UPDATE inventorystockinserial SET serialStatus = 'Sold' WHERE guid IN (?) AND companyGuid = ?", [serialIds, user.companyId]);
 
       for (const sObj of availableSerials) {
         await recordSerialMovement(connection, {

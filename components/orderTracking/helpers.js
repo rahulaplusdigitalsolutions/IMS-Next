@@ -8,7 +8,7 @@ import { format } from "date-fns";
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 export const getAuthHeaders = () => {
-  const token = localStorage.getItem("pt_auth_token");
+  const token = sessionStorage.getItem("pt_auth_token");
   return {
     headers: {
       "Content-Type": "application/json",

@@ -227,7 +227,7 @@ export function AppDataProvider({ children }) {
     }
 
     const lowerQuery = query.toLowerCase();
-    let foundSerial = serials.find((s) => s.value.toLowerCase() === lowerQuery);
+    let foundSerial = serials.find((s) => (s.serialNumber || "").toLowerCase() === lowerQuery);
 
     if (!foundSerial) {
       const foundDispatch = dispatches.find((d) => d.customerName && d.customerName.toLowerCase() === lowerQuery);
@@ -259,7 +259,7 @@ export function AppDataProvider({ children }) {
         .sort((a, b) => new Date(b.returnDate) - new Date(a.returnDate))[0];
 
       setSearchResult({
-        serial: foundSerial.value,
+        serial: foundSerial.serialNumber,
         model: model?.name || "Unknown",
         status: foundSerial.status,
         company: model?.company || "Unknown",

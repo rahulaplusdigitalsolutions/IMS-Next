@@ -60,29 +60,30 @@ export const EDIT_PERMISSIONS = [
   { key: "allow_edit_warranty",         label: "Edit Warranty Certificates",icon: Shield,       group: "Operations" },
 ];
 
-export const DEFAULT_ROLE_PERMISSIONS = {
-  Admin:      PERMISSIONS_LIST.map((p) => p.id),
-  Supervisor: ["dashboard", "print_models", "print_serials", "warranty", "orders", "create_order", "dispatch", "installation", "notifications", "damage", "stat_current_stock", "stat_stock_in", "stat_stock_out", "returns", "reports"],
-  Accountant: ["dashboard", "billing", "notifications", "reports", "stat_current_stock", "stat_stock_in", "stat_stock_out"],
-  Operator:   ["dashboard", "orders", "create_order", "dispatch", "notifications", "stat_current_stock", "stat_stock_in", "stat_stock_out"],
-  User:       ["dashboard", "print_models", "notifications", "stat_current_stock"],
-};
-
 export const INITIAL_FORM = {
-  username: "", password: "", role: "User", roleLabel: null, fullName: "", email: "", phone: "",
-  permissions: DEFAULT_ROLE_PERMISSIONS["User"],
-  allow_edit_models: false, allow_edit_serials: false, allow_edit_godown: false,
-  allow_create_order: false, allow_edit_order_processing: false, allow_edit_billing: false,
-  allow_edit_dispatch: false, allow_edit_installations: false, allow_edit_damaged: false,
-  allow_edit_returns: false, allow_edit_fbf_fba: false, allow_edit_warranty: false,
+  username: "", password: "", roleId: "", fullName: "", email: "", phone: "",
 };
 
-export const ROLE_CONFIG = {
-  Admin:      { bg: "bg-indigo-100",  text: "text-indigo-700",  border: "border-indigo-200",  dot: "bg-indigo-500",  avatar: "bg-indigo-100 text-indigo-700 border-indigo-300" },
-  Supervisor: { bg: "bg-sky-100",     text: "text-sky-700",     border: "border-sky-200",     dot: "bg-sky-500",     avatar: "bg-sky-100 text-sky-700 border-sky-300" },
-  Accountant: { bg: "bg-emerald-100", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500", avatar: "bg-emerald-100 text-emerald-700 border-emerald-300" },
-  User:       { bg: "bg-amber-100",   text: "text-amber-700",   border: "border-amber-200",   dot: "bg-amber-500",   avatar: "bg-amber-100 text-amber-700 border-amber-300" },
-  Operator:   { bg: "bg-violet-100",  text: "text-violet-700",  border: "border-violet-200",  dot: "bg-violet-500",  avatar: "bg-violet-100 text-violet-700 border-violet-300" },
+// No role names are predefined, so colors can't be keyed by a fixed list —
+// Admin gets a fixed identity, every other role name is hashed onto a small
+// rotating palette so it still reads consistently across the app.
+const ADMIN_CONFIG = { bg: "bg-indigo-100", text: "text-indigo-700", border: "border-indigo-200", dot: "bg-indigo-500", avatar: "bg-indigo-100 text-indigo-700 border-indigo-300" };
+const ROLE_PALETTE = [
+  { bg: "bg-sky-100",     text: "text-sky-700",     border: "border-sky-200",     dot: "bg-sky-500",     avatar: "bg-sky-100 text-sky-700 border-sky-300" },
+  { bg: "bg-emerald-100", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500", avatar: "bg-emerald-100 text-emerald-700 border-emerald-300" },
+  { bg: "bg-amber-100",   text: "text-amber-700",   border: "border-amber-200",   dot: "bg-amber-500",   avatar: "bg-amber-100 text-amber-700 border-amber-300" },
+  { bg: "bg-violet-100",  text: "text-violet-700",  border: "border-violet-200",  dot: "bg-violet-500",  avatar: "bg-violet-100 text-violet-700 border-violet-300" },
+  { bg: "bg-rose-100",    text: "text-rose-700",    border: "border-rose-200",    dot: "bg-rose-500",    avatar: "bg-rose-100 text-rose-700 border-rose-300" },
+  { bg: "bg-teal-100",    text: "text-teal-700",    border: "border-teal-200",    dot: "bg-teal-500",    avatar: "bg-teal-100 text-teal-700 border-teal-300" },
+];
+const FALLBACK_CONFIG = { bg: "bg-slate-100", text: "text-slate-700", border: "border-slate-200", dot: "bg-slate-400", avatar: "bg-slate-100 text-slate-600 border-slate-200" };
+
+export const roleConfigFor = (roleName) => {
+  if (!roleName) return FALLBACK_CONFIG;
+  if (roleName === "Admin") return ADMIN_CONFIG;
+  let hash = 0;
+  for (let i = 0; i < roleName.length; i++) hash = (hash * 31 + roleName.charCodeAt(i)) >>> 0;
+  return ROLE_PALETTE[hash % ROLE_PALETTE.length];
 };
 
 export const GROUP_COLORS = {

@@ -8,7 +8,12 @@ export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   requireAuth(user);
 
-  const [rows] = await mysqlPool.query("SELECT * FROM users WHERE userid=?", [user.id]);
+  const [rows] = await mysqlPool.query(
+    `SELECT u.*, r.permissions as rolePermissions, r.editPermissions as roleEditPermissions
+     FROM users u LEFT JOIN roles r ON u.roleId = r.guid AND r.isDeleted = 0
+     WHERE u.userid=?`,
+    [user.id]
+  );
   if (!rows.length) throw new ApiError(404, "User not found.");
   return NextResponse.json(sanitizeUser(rows[0]));
 });
@@ -41,6 +46,11 @@ export const PUT = withErrorHandling(async (request) => {
     await logUserActivity(mysqlPool, user, "Profile Update", changes, request.headers.get("x-forwarded-for") || null);
   }
 
-  const [updated] = await mysqlPool.query("SELECT * FROM users WHERE userid=?", [user.id]);
+  const [updated] = await mysqlPool.query(
+    `SELECT u.*, r.permissions as rolePermissions, r.editPermissions as roleEditPermissions
+     FROM users u LEFT JOIN roles r ON u.roleId = r.guid AND r.isDeleted = 0
+     WHERE u.userid=?`,
+    [user.id]
+  );
   return NextResponse.json({ message: "Profile updated successfully.", user: sanitizeUser(updated[0]) });
 });

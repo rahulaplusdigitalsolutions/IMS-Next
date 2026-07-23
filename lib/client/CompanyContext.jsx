@@ -14,8 +14,8 @@ export function CompanyProvider({ children }) {
 
   useEffect(() => {
     // Attempt to load from localStorage on mount
-    const userStr = typeof window !== "undefined" ? window.localStorage.getItem("pt_user") : null;
-    const compsStr = typeof window !== "undefined" ? window.localStorage.getItem("pt_companies") : null;
+    const userStr = typeof window !== "undefined" ? window.sessionStorage.getItem("pt_user") : null;
+    const compsStr = typeof window !== "undefined" ? window.sessionStorage.getItem("pt_companies") : null;
     if (userStr && compsStr) {
       try {
         const user = JSON.parse(userStr);
@@ -34,7 +34,7 @@ export function CompanyProvider({ children }) {
 
       // Update session with new token and user
       setSession({ user: data.user, token: data.token });
-      window.localStorage.setItem("pt_companies", JSON.stringify(availableCompanies));
+      window.sessionStorage.setItem("pt_companies", JSON.stringify(availableCompanies));
 
       const newActive = availableCompanies.find(c => c.guid === companyGuid);
       if (newActive) setActiveCompany(newActive);

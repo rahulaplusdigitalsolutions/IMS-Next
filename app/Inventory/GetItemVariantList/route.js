@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, requireAuth } from "@/lib/auth";
+import { authenticateRequest, requireAuth, requireCompany } from "@/lib/auth";
 import { authorizeInventory } from "@/lib/inventoryAuth";
 import { withErrorHandling } from "@/lib/apiResponse";
 
@@ -8,22 +8,47 @@ export const GET = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
   authorizeInventory(user, "GET");
   requireAuth(user);
+  requireCompany(user);
 
   const { searchParams } = new URL(request.url);
   const itemId = searchParams.get("itemId");
   const page = Number(searchParams.get("page")) || 1;
   const limit = Number(searchParams.get("limit")) || 10;
   const offset = (page - 1) * limit;
+  const search = searchParams.get("search");
 
+  const searchClause = search ? "AND v.variantName LIKE ?" : "";
+  const searchParam = search ? [`%${search}%`] : [];
+
+  const [[categoryInfo]] = await mysqlPool.query(
+    `SELECT IFNULL(c.showMrp, 0) as showMrp, IFNULL(i.isTrackable, 0) as isTrackable
+     FROM inventoryitemmaster i LEFT JOIN inventorycategorymaster c ON i.categoryId = c.categoryId
+     WHERE i.itemId = ? AND i.companyGuid = ?`,
+    [itemId, user.companyId]
+  );
+  const isTrackable = !!categoryInfo?.isTrackable;
+
+  // Trackable variants: live-count Available serials (dispatch/return never
+  // update inventoryvariantstock.availablePCS, so it drifts stale for these).
   const [rows] = await mysqlPool.query(
-    "SELECT itemVariantId, variantName as variantCode FROM inventoryitemvariant WHERE itemId = ? AND isDeleted = 0 LIMIT ? OFFSET ?",
-    [itemId, limit, offset]
+    `SELECT v.itemVariantId, v.variantName as variantCode, v.sellingPrice as mrp,
+            IFNULL(s.avgPurchaseRate, 0) as avgPurchaseRate,
+            ${isTrackable ? "IFNULL(sc.availableCount, 0)" : "IFNULL(s.availablePCS, 0)"} as availablePCS
+     FROM inventoryitemvariant v
+     LEFT JOIN inventoryvariantstock s ON v.itemVariantId = s.itemVariantId
+     ${isTrackable ? `LEFT JOIN (
+       SELECT itemVariantId, COUNT(*) as availableCount FROM inventorystockinserial
+       WHERE serialStatus = 'Available' AND isDeleted = 0 GROUP BY itemVariantId
+     ) sc ON v.itemVariantId = sc.itemVariantId` : ""}
+     WHERE v.itemId = ? AND v.isDeleted = 0 AND v.companyGuid = ? ${searchClause}
+     LIMIT ? OFFSET ?`,
+    [itemId, user.companyId, ...searchParam, limit, offset]
   );
 
   const [[{ total }]] = await mysqlPool.query(
-    "SELECT COUNT(*) as total FROM inventoryitemvariant WHERE itemId = ? AND isDeleted = 0",
-    [itemId]
+    `SELECT COUNT(*) as total FROM inventoryitemvariant v WHERE v.itemId = ? AND v.isDeleted = 0 AND v.companyGuid = ? ${searchClause}`,
+    [itemId, user.companyId, ...searchParam]
   );
 
-  return NextResponse.json({ message: "Success", data: rows, total });
+  return NextResponse.json({ message: "Success", data: rows, total, showMrp: !!categoryInfo?.showMrp });
 });

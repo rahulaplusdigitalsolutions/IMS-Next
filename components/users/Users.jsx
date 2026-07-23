@@ -8,10 +8,9 @@ import {
   CheckCircle2, X, ShieldCheck, Building2, Globe,
 } from "lucide-react";
 import { printerService } from "@/lib/services/api";
-import { ROLE_OPTIONS } from "@/lib/client/rbac";
 import {
   PERMISSIONS_LIST, PERMISSION_GROUPS, EDIT_PERMISSIONS,
-  ROLE_CONFIG, GROUP_COLORS,
+  GROUP_COLORS, roleConfigFor,
 } from "./constants";
 import { RoleBadge, Avatar } from "./parts";
 
@@ -48,10 +47,15 @@ export default function Users({ currentUser }) {
     return map;
   }, [companies]);
 
-  const stats = useMemo(() =>
-    ROLE_OPTIONS.map(r => ({ ...r, count: users.filter(u => u.role === r.value).length })),
-    [users]
-  );
+  // Role stats are built from whatever role names actually appear on users —
+  // no fixed list, since roles are entirely admin-defined.
+  const stats = useMemo(() => {
+    const counts = {};
+    users.forEach((u) => { counts[u.role] = (counts[u.role] || 0) + 1; });
+    return Object.keys(counts)
+      .sort((a, b) => (a === "Admin" ? -1 : b === "Admin" ? 1 : a.localeCompare(b)))
+      .map((role) => ({ value: role, label: role, count: counts[role] }));
+  }, [users]);
 
   const filteredUsers = useMemo(() => {
     const q = search.toLowerCase();
@@ -90,7 +94,7 @@ export default function Users({ currentUser }) {
   const editPermCount = (user) => EDIT_PERMISSIONS.filter(ep => user[ep.key]).length;
 
   return (
-    <div className="max-w-9xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
 
       {/* ── Page Header ── */}
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden">
@@ -125,14 +129,14 @@ export default function Users({ currentUser }) {
       {/* ── Role Stats ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {stats.map((item) => {
-          const cfg = ROLE_CONFIG[item.value] || {};
+          const cfg = roleConfigFor(item.value);
           const active = roleFilter === item.value;
           return (
             <button
               key={item.value}
               onClick={() => setRoleFilter(prev => prev === item.value ? "All" : item.value)}
               className={`rounded-2xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md ${
-                active ? `${cfg.bg} ${cfg.border} shadow-md ring-2 ring-offset-1 ring-${item.value === 'Admin' ? 'indigo' : item.value === 'Supervisor' ? 'sky' : item.value === 'Accountant' ? 'emerald' : item.value === 'Operator' ? 'violet' : 'amber'}-200` : "bg-white border-slate-200/60 shadow-sm"
+                active ? `${cfg.bg} ${cfg.border} shadow-md ring-2 ring-offset-1` : "bg-white border-slate-200/60 shadow-sm"
               }`}
             >
               <div className="flex items-center justify-between mb-3">
@@ -193,7 +197,7 @@ export default function Users({ currentUser }) {
               const isSelf = String(user.id) === String(currentUser?.id);
               const modCount = user.role === 'Admin' ? PERMISSIONS_LIST.length : (user.permissions?.length || 0);
               const editCount = user.role === 'Admin' ? EDIT_PERMISSIONS.length : editPermCount(user);
-              const cfg = ROLE_CONFIG[user.role] || ROLE_CONFIG.User;
+              const cfg = roleConfigFor(user.role);
 
               return (
                 <div
@@ -219,10 +223,10 @@ export default function Users({ currentUser }) {
                           <Edit3 size={14} />
                         </button>
                         <button
-                          disabled={isSelf || submitting}
+                          disabled={isSelf || submitting || user.role === "Admin"}
                           onClick={() => handleDelete(user)}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                          title="Delete user"
+                          title={user.role === "Admin" ? "Admin accounts cannot be deleted" : "Delete user"}
                         >
                           <Trash2 size={14} />
                         </button>

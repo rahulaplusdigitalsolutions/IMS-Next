@@ -10,9 +10,12 @@ export const GET = withErrorHandling(async (request, { params }) => {
   const { id: serialId } = await params;
 
   const [serials] = await mysqlPool.query(`
-    SELECT s.guid, s.value as serialValue, s.status as currentStatus, s.returnCount, s.createdAt,
-           m.guid as modelId, m.name as modelName, m.company as companyName
-    FROM serials s LEFT JOIN models m ON m.guid=s.modelGuid
+    SELECT s.guid, s.serialNumber as serialValue, s.serialStatus as currentStatus, s.returnCount, s.createdAt,
+           s.itemVariantId as modelId, fbiv.variantName as modelName, fbbm.brandName as companyName
+    FROM inventorystockinserial s
+    LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId=fbiv.itemVariantId
+    LEFT JOIN inventoryitemmaster fbim ON fbiv.itemId=fbim.itemId
+    LEFT JOIN inventorybrandmaster fbbm ON fbim.brandId=fbbm.brandId
     WHERE s.guid=? AND s.isDeleted=0
   `, [serialId]);
   if (!serials.length) throw new ApiError(404, "Serial not found");

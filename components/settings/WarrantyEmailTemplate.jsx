@@ -123,7 +123,7 @@ export default function WarrantyEmailTemplate() {
   );
 
   return (
-    <div className="max-w-9xl mx-auto space-y-5">
+    <div className="max-w-7xl mx-auto space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

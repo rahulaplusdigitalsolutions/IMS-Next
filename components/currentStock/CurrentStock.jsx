@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { PackageSearch, Search, Layers, TrendingUp, AlertTriangle, FileDown, Loader2 } from 'lucide-react';
+import { PackageSearch, Search, Layers, TrendingUp, AlertTriangle, FileDown, Loader2, Hash, X, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { inventoryService } from '@/lib/services/inventoryService';
 import Swal from 'sweetalert2';
@@ -19,6 +19,64 @@ const CurrentStock = () => {
   const [totalRecords, setTotalRecords] = useState(0);
   const [globalValue, setGlobalValue] = useState(0);
   const [globalLowStock, setGlobalLowStock] = useState(0);
+
+  // Click a serialized variant to open a popup with its serial numbers
+  const [serialModalVariant, setSerialModalVariant] = useState(null); // { itemVariantId, variantName }
+  const [serialModalRows, setSerialModalRows] = useState([]);
+  const [loadingSerialModal, setLoadingSerialModal] = useState(false);
+
+  const openVariantSerials = async (item) => {
+    if (!item.isTrackable) return;
+    setSerialModalVariant(item);
+    setSerialModalRows([]);
+    setLoadingSerialModal(true);
+    try {
+      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL || ""}/Inventory/GetVariantSerials`, {
+        params: { itemVariantId: item.itemVariantId },
+        headers: { Authorization: `Bearer ${sessionStorage.getItem("pt_auth_token")}` },
+      });
+      setSerialModalRows((response.data?.data || []).filter((s) => s.status === "Available"));
+    } catch (error) {
+      console.error("Failed to load serials", error);
+      setSerialModalRows([]);
+    } finally {
+      setLoadingSerialModal(false);
+    }
+  };
+
+  const closeVariantSerials = () => {
+    setSerialModalVariant(null);
+    setSerialModalRows([]);
+  };
+
+  const [deletingSerialGuid, setDeletingSerialGuid] = useState("");
+
+  const handleDeleteSerial = (serial) => {
+    Swal.fire({
+      title: "Delete Serial No.?",
+      text: `This will remove "${serial.value}" from stock.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Delete",
+      cancelButtonText: "Cancel",
+    }).then(async (result) => {
+      if (!result.isConfirmed) return;
+      setDeletingSerialGuid(serial.guid);
+      try {
+        await axios.post(
+          `${process.env.NEXT_PUBLIC_API_URL || ""}/Inventory/DeleteVariantSerial`,
+          { serialGuid: serial.guid },
+          { headers: { Authorization: `Bearer ${sessionStorage.getItem("pt_auth_token")}` } }
+        );
+        await openVariantSerials(serialModalVariant);
+        fetchCurrentStock(currentPage, pageSize);
+      } catch (error) {
+        Swal.fire("Error", error.response?.data?.message || "Failed to delete serial", "error");
+      } finally {
+        setDeletingSerialGuid("");
+      }
+    });
+  };
 
   useEffect(() => {
     fetchBrands();
@@ -48,7 +106,7 @@ const CurrentStock = () => {
           brandId: activeBrandId,
           search: searchTerm
         },
-        headers: { Authorization: `Bearer ${localStorage.getItem("pt_auth_token")}` }
+        headers: { Authorization: `Bearer ${sessionStorage.getItem("pt_auth_token")}` }
       });
       setStockData(response.data?.data || []);
       setTotalRecords(response.data?.total || 0);
@@ -228,7 +286,12 @@ const CurrentStock = () => {
               </tr>
             ) : (
               stockData.map((item, index) => (
-                <tr key={item.itemVariantId || index} className="hover:bg-slate-50 transition-colors">
+                <tr
+                  key={item.itemVariantId || index}
+                  className={`hover:bg-slate-50 transition-colors ${item.isTrackable ? "cursor-pointer" : ""}`}
+                  onClick={() => openVariantSerials(item)}
+                  title={item.isTrackable ? "Click to view serial numbers" : ""}
+                >
                   <td className="p-4 text-sm text-slate-600">{(currentPage - 1) * pageSize + index + 1}</td>
                   <td className="p-4">
                     <span className="font-bold text-slate-800">{item.itemName}</span>
@@ -319,6 +382,73 @@ const CurrentStock = () => {
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
             </button>
+          </div>
+        </div>
+      )}
+
+      {serialModalVariant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={closeVariantSerials}>
+          <div className="bg-white rounded-2xl shadow-xl w-[90vw] max-w-6xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <Hash size={18} className="text-indigo-600" /> Serial Numbers — {serialModalVariant.variantName}
+              </h2>
+              <button onClick={closeVariantSerials} className="text-slate-400 hover:text-slate-700">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {loadingSerialModal ? (
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 size={16} className="animate-spin" /> Loading serial numbers...
+                </div>
+              ) : serialModalRows.length === 0 ? (
+                <p className="text-sm text-slate-400">No serial numbers found for this variant.</p>
+              ) : (
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="p-2.5 text-xs font-bold text-slate-500 uppercase">Sr. No.</th>
+                      <th className="p-2.5 text-xs font-bold text-slate-500 uppercase">Serial No.</th>
+                      <th className="p-2.5 text-xs font-bold text-slate-500 uppercase">Status</th>
+                      <th className="p-2.5 text-xs font-bold text-slate-500 uppercase text-right">Landing Price</th>
+                      <th className="p-2.5 text-xs font-bold text-slate-500 uppercase text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {serialModalRows.map((s, idx) => (
+                      <tr key={s.guid}>
+                        <td className="p-2.5 text-slate-500">{idx + 1}</td>
+                        <td className="p-2.5 font-mono font-bold text-slate-800">{s.value}</td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                            s.status === "Available" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-100 text-slate-600 border border-slate-200"
+                          }`}>
+                            {s.status}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-right text-slate-600">{s.landingPrice ? `₹${s.landingPrice}` : "-"}</td>
+                        <td className="p-2.5 text-center">
+                          <button
+                            onClick={() => handleDeleteSerial(s)}
+                            disabled={deletingSerialGuid === s.guid}
+                            title="Delete"
+                            className="bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 p-1.5 rounded-lg transition-all disabled:opacity-50 inline-flex items-center justify-center"
+                          >
+                            {deletingSerialGuid === s.guid ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="px-6 py-3 border-t border-slate-100 text-xs text-slate-400">
+              <span>{serialModalRows.length} serial number{serialModalRows.length !== 1 ? "s" : ""}</span>
+            </div>
           </div>
         </div>
       )}

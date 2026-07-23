@@ -14,12 +14,15 @@ export const GET = withErrorHandling(async (request) => {
 
   let q = `
     SELECT o.dispatchDate, o.platform AS firmName, o.orderid as customer,
-           oi.sellingPrice, s.landingPrice, m.name as modelName, m.company as companyName,
-           s.value as serialNumber, ins.installationRequired, ins.installationCharges,
+           oi.sellingPrice, s.landingPrice, itv.variantName as modelName, bm.brandName as companyName,
+           s.serialNumber as serialNumber, ins.installationRequired, ins.installationCharges,
            o.packagingCost, o.commission, o.status
     FROM order_items oi JOIN orders o ON oi.orderGuid=o.guid
     LEFT JOIN order_installations ins ON o.guid=ins.orderGuid
-    LEFT JOIN serials s ON oi.serialNumberGuid=s.guid LEFT JOIN models m ON s.modelGuid=m.guid
+    LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid=s.guid
+    LEFT JOIN inventoryitemvariant itv ON s.itemVariantId=itv.itemVariantId
+    LEFT JOIN inventoryitemmaster im ON itv.itemId=im.itemId
+    LEFT JOIN inventorybrandmaster bm ON im.brandId=bm.brandId
     WHERE o.isDeleted=0
   `;
   const sqlParams = [];

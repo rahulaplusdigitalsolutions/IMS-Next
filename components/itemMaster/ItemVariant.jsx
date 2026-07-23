@@ -3,7 +3,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 import axios from "axios";
-import { Plus, Loader2, ListTree, ArrowLeft, Trash2, Barcode, Hash, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Loader2, ListTree, ArrowLeft, Trash2, Barcode, Hash, X, Edit2, Search } from "lucide-react";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -15,35 +15,119 @@ const ItemVariant = () => {
   
   const [itemVariantId, setItemVariantId] = useState("");
   const [variantCode, setVariantCode] = useState("");
+  const [mrp, setMrp] = useState("");
   const [variants, setVariants] = useState([]);
   
   const [loading, setLoading] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
 
-  // Click a variant to expand and see its serial numbers
-  const [expandedVariantId, setExpandedVariantId] = useState(null);
-  const [serialsByVariant, setSerialsByVariant] = useState({});
-  const [loadingSerialsFor, setLoadingSerialsFor] = useState(null);
+  // Click a variant to open a popup with its serial numbers
+  const [serialModalVariant, setSerialModalVariant] = useState(null); // { itemVariantId, variantCode }
+  const [serialModalRows, setSerialModalRows] = useState([]);
+  const [loadingSerialModal, setLoadingSerialModal] = useState(false);
 
-  const toggleVariantSerials = async (variantId) => {
-    if (expandedVariantId === variantId) {
-      setExpandedVariantId(null);
-      return;
-    }
-    setExpandedVariantId(variantId);
-    if (serialsByVariant[variantId]) return;
-    setLoadingSerialsFor(variantId);
+  const openVariantSerials = async (v) => {
+    setSerialModalVariant(v);
+    setSerialModalRows([]);
+    setLoadingSerialModal(true);
     try {
       const response = await axios.get(`${API_BASE_URL}/Inventory/GetVariantSerials`, {
-        params: { itemVariantId: variantId },
+        params: { itemVariantId: v.itemVariantId },
         headers: getHeaders(),
       });
-      setSerialsByVariant((prev) => ({ ...prev, [variantId]: response.data?.data || [] }));
+      setSerialModalRows(response.data?.data || []);
+      setNewLandingPrice(response.data?.lastPurchaseRate ? String(response.data.lastPurchaseRate) : "");
     } catch (error) {
       console.error("Failed to load serials", error);
-      setSerialsByVariant((prev) => ({ ...prev, [variantId]: [] }));
+      setSerialModalRows([]);
     } finally {
-      setLoadingSerialsFor(null);
+      setLoadingSerialModal(false);
+    }
+  };
+
+  const closeVariantSerials = () => {
+    setSerialModalVariant(null);
+    setSerialModalRows([]);
+    setNewSerialValue("");
+    setNewLandingPrice("");
+    setNewGodownGuid("");
+  };
+
+  const [newSerialValue, setNewSerialValue] = useState("");
+  const [newLandingPrice, setNewLandingPrice] = useState("");
+  const [newGodownGuid, setNewGodownGuid] = useState("");
+  const [godowns, setGodowns] = useState([]);
+  const [addingSerial, setAddingSerial] = useState(false);
+  const [deletingSerialGuid, setDeletingSerialGuid] = useState("");
+
+  useEffect(() => {
+    const fetchGodowns = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/api/godowns`, { headers: getHeaders() });
+        setGodowns(Array.isArray(response.data) ? response.data : response.data?.data || []);
+      } catch (error) {
+        console.error("Failed to load godowns", error);
+      }
+    };
+    fetchGodowns();
+  }, []);
+
+  const handleDeleteSerial = (serial) => {
+    Swal.fire({
+      title: "Delete Serial No.?",
+      text: `This will remove "${serial.value}" from stock.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, Delete",
+      cancelButtonText: "Cancel",
+    }).then(async (result) => {
+      if (!result.isConfirmed) return;
+      setDeletingSerialGuid(serial.guid);
+      try {
+        await axios.post(
+          `${API_BASE_URL}/Inventory/DeleteVariantSerial`,
+          { serialGuid: serial.guid },
+          { headers: getHeaders() }
+        );
+        await openVariantSerials(serialModalVariant);
+        fetchVariants(currentPage, pageSize);
+      } catch (error) {
+        Swal.fire("Error", error.response?.data?.message || "Failed to delete serial", "error");
+      } finally {
+        setDeletingSerialGuid("");
+      }
+    });
+  };
+
+  const handleAddSerial = async () => {
+    // One or more serial numbers — split on newline/comma for bulk add.
+    const values = newSerialValue
+      .split(/[\n,]/)
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+    if (values.length === 0 || !serialModalVariant) return;
+    setAddingSerial(true);
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/Inventory/AddVariantSerial`,
+        {
+          itemVariantId: serialModalVariant.itemVariantId,
+          values,
+          landingPrice: newLandingPrice !== "" ? Number(newLandingPrice) : 0,
+          godownGuid: newGodownGuid || null,
+        },
+        { headers: getHeaders() }
+      );
+      setNewSerialValue("");
+      await openVariantSerials(serialModalVariant);
+      fetchVariants(currentPage, pageSize);
+      if (res.data?.count > 1) {
+        Swal.fire("Success", `${res.data.count} serial numbers added`, "success");
+      }
+    } catch (error) {
+      Swal.fire("Error", error.response?.data?.message || "Failed to add serial number(s)", "error");
+    } finally {
+      setAddingSerial(false);
     }
   };
 
@@ -51,26 +135,31 @@ const ItemVariant = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalRecords, setTotalRecords] = useState(0);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // MRP is only shown for categories that opted into it (Category Master "Show MRP" checkbox)
+  const [showMrp, setShowMrp] = useState(false);
 
   const getHeaders = () => {
-    const token = localStorage.getItem("pt_auth_token");
+    const token = sessionStorage.getItem("pt_auth_token");
     return {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     };
   };
 
-  const fetchVariants = async (page = currentPage, limit = pageSize) => {
+  const fetchVariants = async (page = currentPage, limit = pageSize, search = searchTerm) => {
     if (!rawItemId) return;
-    
+
     setTableLoading(true);
     try {
       const response = await axios.get(`${API_BASE_URL}/Inventory/GetItemVariantList`, {
-        params: { itemId: rawItemId, page, limit },
+        params: { itemId: rawItemId, page, limit, search: search || undefined },
         headers: getHeaders(),
       });
       setVariants(response.data?.data || []);
       setTotalRecords(response.data?.total || 0);
+      setShowMrp(!!response.data?.showMrp);
     } catch (error) {
       console.error("Failed to load variants", error);
       setVariants([]);
@@ -91,9 +180,23 @@ const ItemVariant = () => {
   }, [rawItemId]);
 
   useEffect(() => {
-    if (rawItemId) fetchVariants(currentPage, pageSize);
+    if (rawItemId) fetchVariants(currentPage, pageSize, searchTerm);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, pageSize, rawItemId]);
+
+  // Debounce search input, then reset to page 1 and refetch
+  useEffect(() => {
+    if (!rawItemId) return;
+    const handle = setTimeout(() => {
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+      } else {
+        fetchVariants(1, pageSize, searchTerm);
+      }
+    }, 350);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm]);
 
   const handleSaveVariant = async () => {
     if (!variantCode.trim()) {
@@ -106,18 +209,20 @@ const ItemVariant = () => {
       const payload = {
         ItemVariantId: itemVariantId || "0",
         ItemId: rawItemId,
-        VariantCode: variantCode.trim()
+        VariantCode: variantCode.trim(),
+        Mrp: mrp !== "" ? Number(mrp) : null,
       };
-      
+
       const res = await axios.post(
         `${API_BASE_URL}/Inventory/SaveOrUpdateItemVariant`,
         payload,
         { headers: getHeaders() }
       );
-      
+
       if (res.data?.message === "Success") {
         Swal.fire("Success", "Variant saved successfully", "success");
         setVariantCode("");
+        setMrp("");
         setItemVariantId("");
         fetchVariants();
       } else {
@@ -129,6 +234,19 @@ const ItemVariant = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditVariant = (v) => {
+    setItemVariantId(v.itemVariantId);
+    setVariantCode(v.variantCode || "");
+    setMrp(v.mrp != null ? String(v.mrp) : "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleCancelEdit = () => {
+    setItemVariantId("");
+    setVariantCode("");
+    setMrp("");
   };
 
   const handleDeleteVariant = (id) => {
@@ -210,16 +328,55 @@ const ItemVariant = () => {
             />
           </div>
 
+          {showMrp && (
+            <div className="w-full md:w-48">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">MRP</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">₹</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={mrp}
+                  onChange={(e) => setMrp(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSaveVariant()}
+                  className="w-full bg-white border border-slate-300 rounded-xl pl-8 pr-4 py-3 text-slate-800 font-medium focus:ring-2 focus:ring-indigo-100 outline-none transition-all shadow-sm"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3">
+            {itemVariantId && (
+              <button
+                onClick={handleCancelEdit}
+                className="bg-white hover:bg-slate-100 text-slate-600 border border-slate-300 px-5 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-sm"
+              >
+                Cancel
+              </button>
+            )}
             <button
               onClick={handleSaveVariant}
               disabled={loading}
               className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-200 hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-70 disabled:hover:translate-y-0 min-w-[160px]"
             >
-              {loading ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} />}
-              Save Variant
+              {loading ? <Loader2 size={18} className="animate-spin" /> : itemVariantId ? <Edit2 size={18} /> : <Plus size={18} />}
+              {itemVariantId ? "Update Variant" : "Save Variant"}
             </button>
           </div>
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <div className="relative max-w-sm">
+          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search variant code..."
+            className="w-full bg-white border border-slate-300 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-100 outline-none transition-all shadow-sm"
+          />
         </div>
       </div>
 
@@ -228,79 +385,73 @@ const ItemVariant = () => {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                
+
                 <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider">Variant Code</th>
+                {showMrp && <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">MRP</th>}
+                {showMrp && <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Average Price</th>}
+                <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Stock</th>
                 <th className="py-4 px-6 text-xs font-bold text-slate-500 uppercase tracking-wider text-center w-64">Action</th>
               </tr>
             </thead>
                 <tbody className="divide-y divide-slate-100">
               {variants.length > 0 ? (
                 variants.map((v, index) => (
-                  <React.Fragment key={v.itemVariantId || index}>
-                  <tr className="hover:bg-indigo-50/30 transition-colors cursor-pointer" onClick={() => toggleVariantSerials(v.itemVariantId)}>
+                  <tr key={v.itemVariantId || index} className="hover:bg-indigo-50/30 transition-colors cursor-pointer" onClick={() => openVariantSerials(v)}>
                     <td className="py-4 px-6 text-sm font-bold text-slate-800 font-mono">
-                      <span className="bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 inline-flex items-center gap-1.5">
+                      <span className="bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
                         {v.variantCode}
-                        {expandedVariantId === v.itemVariantId ? <ChevronUp size={13} className="text-slate-400" /> : <ChevronDown size={13} className="text-slate-400" />}
                       </span>
+                    </td>
+                    {showMrp && (
+                      <td className="py-4 px-6 text-sm text-right font-semibold text-slate-700">
+                        {v.mrp != null ? `₹${Number(v.mrp).toLocaleString("en-IN")}` : "-"}
+                      </td>
+                    )}
+                    {showMrp && (
+                      <td className="py-4 px-6 text-sm text-right font-semibold text-slate-700">
+                        {v.avgPurchaseRate != null && v.avgPurchaseRate > 0 ? `₹${Number(v.avgPurchaseRate).toLocaleString("en-IN")}` : "-"}
+                      </td>
+                    )}
+                    <td className="py-4 px-6 text-center">
+                      <span className="bg-slate-100 text-slate-600 font-bold px-2.5 py-1 rounded-full text-xs">{v.availablePCS ?? 0}</span>
                     </td>
                     <td className="py-4 px-6 text-center" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-2">
                         <button
-                          onClick={() => toggleVariantSerials(v.itemVariantId)}
-                          className="bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+                          onClick={() => handleEditVariant(v)}
+                          title="Edit"
+                          className="bg-amber-50 border border-amber-100 hover:bg-amber-100 text-amber-700 p-2 rounded-lg transition-all shadow-sm flex items-center justify-center"
                         >
-                          <Hash size={14} /> Serial No.
+                          <Edit2 size={14} />
+                        </button>
+                        <button
+                          onClick={() => openVariantSerials(v)}
+                          title="Serial No."
+                          className="bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 p-2 rounded-lg transition-all shadow-sm flex items-center justify-center"
+                        >
+                          <Hash size={14} />
                         </button>
                         <button
                           onClick={() => router.push(`/variantBarcode?itemVariantId=${v.itemVariantId}`)}
-                          className="bg-sky-50 border border-sky-100 hover:bg-sky-100 text-sky-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+                          title="Map Barcode"
+                          className="bg-sky-50 border border-sky-100 hover:bg-sky-100 text-sky-700 p-2 rounded-lg transition-all shadow-sm flex items-center justify-center"
                         >
-                          <Barcode size={14} /> Map Barcode
+                          <Barcode size={14} />
                         </button>
                         <button
                           onClick={() => handleDeleteVariant(v.itemVariantId)}
-                          className="bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+                          title="Delete"
+                          className="bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 p-2 rounded-lg transition-all shadow-sm flex items-center justify-center"
                         >
-                          <Trash2 size={14} /> Delete
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     </td>
                   </tr>
-                  {expandedVariantId === v.itemVariantId && (
-                    <tr className="bg-slate-50">
-                      <td colSpan={2} className="px-6 py-4">
-                        {loadingSerialsFor === v.itemVariantId ? (
-                          <div className="flex items-center gap-2 text-sm text-slate-500">
-                            <Loader2 size={14} className="animate-spin" /> Loading serial numbers...
-                          </div>
-                        ) : (serialsByVariant[v.itemVariantId] || []).length === 0 ? (
-                          <p className="text-sm text-slate-400">No serial numbers found for this variant.</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {(serialsByVariant[v.itemVariantId] || []).map((s) => (
-                              <span
-                                key={s.guid}
-                                title={`Status: ${s.status}${s.landingPrice ? ` · Landing: ₹${s.landingPrice}` : ""}`}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
-                                  s.status === "Available"
-                                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                                    : "bg-slate-100 border-slate-200 text-slate-600"
-                                }`}
-                              >
-                                {s.value}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                  </React.Fragment>
                 ))
               ) : (
                 <tr>
-                  <td colSpan="3" className="py-8 px-6 text-center">
+                  <td colSpan={showMrp ? 5 : 3} className="py-8 px-6 text-center">
                     {tableLoading ? (
                       <div className="flex flex-col items-center justify-center text-slate-500">
                         <Loader2 className="animate-spin mb-2" size={24} />
@@ -377,6 +528,123 @@ const ItemVariant = () => {
               </div>
             )}
           </div>
+
+          {serialModalVariant && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={closeVariantSerials}>
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                    <Hash size={18} className="text-indigo-600" /> Serial Numbers — {serialModalVariant.variantCode}
+                  </h2>
+                  <button onClick={closeVariantSerials} className="text-slate-400 hover:text-slate-700">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="px-6 pt-4">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Add Serial No. <span className="text-slate-400 font-normal normal-case">(ek se zyada ho to alag-alag line mein daalo — bulk add)</span></label>
+                  <textarea
+                    value={newSerialValue}
+                    onChange={(e) => setNewSerialValue(e.target.value)}
+                    rows={3}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-indigo-100 outline-none resize-y"
+                    placeholder={"Enter or scan serial number(s)\nOne per line for bulk add"}
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <div className="w-32 relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={newLandingPrice}
+                        onChange={(e) => setNewLandingPrice(e.target.value)}
+                        className="w-full border border-slate-300 rounded-xl pl-7 pr-2 py-2 text-sm focus:ring-2 focus:ring-indigo-100 outline-none"
+                        placeholder="Landing"
+                        title="Landing Price"
+                      />
+                    </div>
+                    <select
+                      value={newGodownGuid}
+                      onChange={(e) => setNewGodownGuid(e.target.value)}
+                      className="flex-1 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-100 outline-none bg-white text-slate-700"
+                      title="Godown"
+                    >
+                      <option value="">Select Godown (optional)</option>
+                      {godowns.map((g) => (
+                        <option key={g.guid || g.id} value={g.guid || g.id}>{g.godownName || g.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleAddSerial}
+                      disabled={addingSerial || !newSerialValue.trim()}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-1.5 transition-all disabled:opacity-50 shrink-0"
+                    >
+                      {addingSerial ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+                      Add
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">Landing Price is pre-filled with the last used price for this variant — change it if this batch is different.</p>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-6 py-4">
+                  {loadingSerialModal ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 size={16} className="animate-spin" /> Loading serial numbers...
+                    </div>
+                  ) : serialModalRows.length === 0 ? (
+                    <p className="text-sm text-slate-400">No serial numbers found for this variant.</p>
+                  ) : (
+                    <table className="w-full text-left border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <th className="p-2.5 text-xs font-bold text-slate-500 uppercase">Serial No.</th>
+                          <th className="p-2.5 text-xs font-bold text-slate-500 uppercase">Status</th>
+                          <th className="p-2.5 text-xs font-bold text-slate-500 uppercase text-right">Landing Price</th>
+                          <th className="p-2.5 text-xs font-bold text-slate-500 uppercase text-center">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {serialModalRows.map((s) => (
+                          <tr key={s.guid}>
+                            <td className="p-2.5 font-mono font-bold text-slate-800">{s.value}</td>
+                            <td className="p-2.5">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                                s.status === "Available" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-100 text-slate-600 border border-slate-200"
+                              }`}>
+                                {s.status}
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-right text-slate-600">{s.landingPrice ? `₹${s.landingPrice}` : "-"}</td>
+                            <td className="p-2.5 text-center">
+                              {s.status === "Available" ? (
+                                <button
+                                  onClick={() => handleDeleteSerial(s)}
+                                  disabled={deletingSerialGuid === s.guid}
+                                  title="Delete"
+                                  className="bg-red-50 border border-red-100 hover:bg-red-100 text-red-600 p-1.5 rounded-lg transition-all disabled:opacity-50 inline-flex items-center justify-center"
+                                >
+                                  {deletingSerialGuid === s.guid ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-300">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 text-xs text-slate-400">
+                  <span>{serialModalRows.length} serial number{serialModalRows.length !== 1 ? "s" : ""}</span>
+                  <button onClick={closeVariantSerials} className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-100">
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
   );
 };

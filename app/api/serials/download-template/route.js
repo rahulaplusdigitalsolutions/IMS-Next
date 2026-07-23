@@ -10,7 +10,13 @@ export const GET = withErrorHandling(async (request) => {
   requireCompany(user);
   authorizeSerials(user, "GET");
 
-  const [models] = await mysqlPool.query("SELECT guid as id, name, company, mrp FROM models WHERE isDeleted=0 AND companyGuid=? ORDER BY name", [user.companyId]);
+  const [models] = await mysqlPool.query(
+    `SELECT v.itemVariantId as id, v.variantName as name, b.brandName as company, v.sellingPrice as mrp
+     FROM inventoryitemvariant v LEFT JOIN inventoryitemmaster i ON v.itemId=i.itemId LEFT JOIN inventorybrandmaster b ON i.brandId=b.brandId
+     WHERE v.isDeleted=0 AND v.companyGuid=?
+     ORDER BY name`,
+    [user.companyId]
+  );
   const [godowns] = await mysqlPool.query("SELECT guid, godownName, godownAddress FROM godowns WHERE isDeleted=0 AND companyGuid=? ORDER BY isDefault DESC, godownName ASC", [user.companyId]);
 
   const wb = xlsx.utils.book_new();

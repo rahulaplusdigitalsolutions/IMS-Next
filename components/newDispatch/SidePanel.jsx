@@ -2,7 +2,7 @@
 // Right-hand quick-pick panel extracted from NewDispatch.jsx — unchanged markup.
 import React from "react";
 import {
-  AlertCircle, Building2, Database, ListChecks, Package, Shield,
+  AlertCircle, Building2, Database, ListChecks, Package, Shield, Boxes,
 } from "lucide-react";
 import SearchableSelect from "../common/SearchableSelect";
 
@@ -10,7 +10,7 @@ export default function SidePanel({
   activeTab, batchList, companyOptions, filteredModelsByCompany,
   getCompanyName, getSerialValue, models, processSerial, selectedCompany,
   selectedModelId, selectedPanelSerials, setForm, setSelectedCompany,
-  setSelectedModelId,
+  setSelectedModelId, itemNameOptions = [], selectedItemName = "", setSelectedItemName,
 }) {
   return (
           <aside className="xl:sticky xl:top-6 self-start">
@@ -41,10 +41,26 @@ export default function SidePanel({
                   </label>
                   <SearchableSelect
                     value={selectedCompany}
-                    onChange={(val) => { setSelectedCompany(val); setSelectedModelId(""); }}
+                    onChange={(val) => { setSelectedCompany(val); setSelectedItemName(""); setSelectedModelId(""); }}
                     options={companyOptions.map(c => ({ label: c, value: c }))}
                     placeholder="Select company"
                     emptyMsg="No companies found"
+                  />
+                </div>
+
+                {/* Item Name Selector */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                    <Boxes size={11} className="text-slate-400" />
+                    Item Name
+                  </label>
+                  <SearchableSelect
+                    value={selectedItemName}
+                    onChange={(val) => { setSelectedItemName(val); setSelectedModelId(""); }}
+                    options={itemNameOptions.map(n => ({ label: n, value: n }))}
+                    placeholder={selectedCompany ? "Select item" : "Select company first"}
+                    disabled={!selectedCompany}
+                    emptyMsg="No items found"
                   />
                 </div>
 
@@ -58,8 +74,8 @@ export default function SidePanel({
                     value={selectedModelId}
                     onChange={setSelectedModelId}
                     options={filteredModelsByCompany.map(m => ({ label: m.name, value: m.guid }))}
-                    placeholder={selectedCompany ? "Select model" : "Select company first"}
-                    disabled={!selectedCompany}
+                    placeholder={selectedItemName ? "Select model" : "Select item first"}
+                    disabled={!selectedItemName}
                     emptyMsg="No models found"
                   />
                 </div>

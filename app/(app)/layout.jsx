@@ -83,9 +83,9 @@ function AppLayoutInner({ children, currentUser, handleLogout, router, pathname,
           </button>
           </div>
         </div>
-        <div className="max-w-full mx-auto p-4 md:p-6 w-full">{children}</div>
+        <div className="max-w-full mx-auto p-4 md:p-6 w-full flex-1 flex flex-col min-h-0">{children}</div>
       </main>
-      <GlobalSearchModal showFinancials={currentUser.role === "Admin" || currentUser.role === "Accountant"} />
+      <GlobalSearchModal showFinancials={currentUser.role === "Admin" || !!currentUser.permissions?.includes("billing")} />
     </div>
   );
 }
@@ -97,7 +97,7 @@ export default function AppLayout({ children }) {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    const userStr = typeof window !== "undefined" ? window.localStorage.getItem("pt_user") : null;
+    const userStr = typeof window !== "undefined" ? window.sessionStorage.getItem("pt_user") : null;
     if (!userStr) {
       router.replace("/login");
       return;

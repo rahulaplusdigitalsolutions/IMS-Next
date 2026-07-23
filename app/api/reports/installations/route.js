@@ -14,12 +14,13 @@ export const GET = withErrorHandling(async (request) => {
 
   let q = `
     SELECT oi.guid, o.dispatchDate, o.platform AS firmName, o.orderid as customer,
-           m.name as modelName, s.value as serialNumber,
+           itv.variantName as modelName, s.serialNumber as serialNumber,
            ins.installationStatus, ins.installationCharges, ins.installationRemarks,
            ins.scheduledDate, ins.installationDate, ins.technicianName, ins.technicianContact
     FROM order_items oi JOIN orders o ON oi.orderGuid=o.guid
     LEFT JOIN order_installations ins ON o.guid=ins.orderGuid
-    LEFT JOIN serials s ON oi.serialNumberGuid=s.guid LEFT JOIN models m ON s.modelGuid=m.guid
+    LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid=s.guid
+    LEFT JOIN inventoryitemvariant itv ON s.itemVariantId=itv.itemVariantId
     WHERE (ins.installationRequired='Yes' OR ins.installationRequired='true' OR ins.installationRequired='1') AND o.isDeleted=0
   `;
   const sqlParams = [];

@@ -170,7 +170,7 @@ export function Modal({ title, onClose, children, size = 'md', closeOnEscape = t
   const sizeClass = {
     sm: 'max-w-md',
     md: 'max-w-3xl',
-    lg: 'max-w-8xl',
+    lg: 'max-w-5xl',
     xl: 'max-w-7xl'
   }[size] || 'max-w-3xl';
 

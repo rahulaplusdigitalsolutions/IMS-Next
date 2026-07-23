@@ -13,9 +13,9 @@ export const PUT = withErrorHandling(async (request, { params }) => {
 
   const { condition, repairCost, reason } = await parseJsonBody(request);
   const [existing] = await mysqlPool.query(`
-    SELECT r.guid, r.serialNumberGuid, s.value as serialValue, r.condition, r.reason,
+    SELECT r.guid, r.serialNumberGuid, s.serialNumber as serialValue, r.condition, r.reason,
            r.platform AS firmName, r.orderid AS customerName, r.invoiceNumber, r.dispatchGuid
-    FROM returns r LEFT JOIN serials s ON s.guid=r.serialNumberGuid AND s.companyGuid=r.companyGuid WHERE r.guid=? AND r.companyGuid=?
+    FROM returns r LEFT JOIN inventorystockinserial s ON s.guid=r.serialNumberGuid AND s.companyGuid=r.companyGuid WHERE r.guid=? AND r.companyGuid=?
   `, [id, user.companyId]);
   if (!existing.length) throw new ApiError(404, "Return not found");
   const ext = existing[0];
@@ -29,7 +29,7 @@ export const PUT = withErrorHandling(async (request, { params }) => {
 
   if (condition !== undefined) {
     const newStatus = ["Repaired", "Good", "InStock"].includes(condition) ? "Available" : "Damaged";
-    await mysqlPool.query("UPDATE serials SET status=? WHERE guid=? AND companyGuid=?", [newStatus, ext.serialNumberGuid, user.companyId]);
+    await mysqlPool.query("UPDATE inventorystockinserial SET serialStatus=? WHERE guid=? AND companyGuid=?", [newStatus, ext.serialNumberGuid, user.companyId]);
     await recordSerialMovement(mysqlPool, { companyGuid: user.companyId, serialNumberGuid: ext.serialNumberGuid, serialValue: ext.serialValue, dispatchGuid: ext.dispatchGuid, actionType: newStatus === "Available" ? "InStock" : "Damaged", status: newStatus, condition, reason: reason !== undefined ? reason : ext.reason, firmName: ext.firmName, customerName: ext.customerName, invoiceNumber: ext.invoiceNumber, createdBy: "System", notes: `Inventory status updated from return #${id}` });
   }
 
@@ -43,16 +43,16 @@ export const DELETE = withErrorHandling(async (request, { params }) => {
   const { id } = await params;
 
   const [check] = await mysqlPool.query(`
-    SELECT r.guid, r.serialNumberGuid, COALESCE(NULLIF(r.serialValue,''),s.value,'') as serialValue,
+    SELECT r.guid, r.serialNumberGuid, COALESCE(NULLIF(r.serialValue,''),s.serialNumber,'') as serialValue,
            r.condition, r.reason, r.platform AS firmName, r.orderid AS customerName, r.invoiceNumber, r.dispatchGuid
-    FROM returns r LEFT JOIN serials s ON s.guid=r.serialNumberGuid AND s.companyGuid=r.companyGuid WHERE r.guid=? AND r.companyGuid=? LIMIT 1
+    FROM returns r LEFT JOIN inventorystockinserial s ON s.guid=r.serialNumberGuid AND s.companyGuid=r.companyGuid WHERE r.guid=? AND r.companyGuid=? LIMIT 1
   `, [id, user.companyId]);
   if (!check.length) throw new ApiError(404, "Return not found");
   const rec = check[0];
 
   await mysqlPool.query("UPDATE returns SET isDeleted=1 WHERE guid=? AND companyGuid=?", [id, user.companyId]);
   const [cnt] = await mysqlPool.query("SELECT COUNT(*) as total FROM returns WHERE serialNumberGuid=? AND isDeleted=0 AND companyGuid=?", [rec.serialNumberGuid, user.companyId]);
-  await mysqlPool.query("UPDATE serials SET status='Dispatched', returnCount=? WHERE guid=? AND companyGuid=?", [cnt[0].total, rec.serialNumberGuid, user.companyId]);
+  await mysqlPool.query("UPDATE inventorystockinserial SET serialStatus='Dispatched', returnCount=? WHERE guid=? AND companyGuid=?", [cnt[0].total, rec.serialNumberGuid, user.companyId]);
 
   if (rec.dispatchGuid) {
     const [item] = await mysqlPool.query("SELECT orderGuid FROM order_items WHERE guid=? AND companyGuid=?", [rec.dispatchGuid, user.companyId]);

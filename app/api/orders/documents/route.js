@@ -11,9 +11,7 @@ export const DELETE = withErrorHandling(async (request) => {
   authorizeOrdersRequest(user, "DELETE", new URL(request.url).pathname, null);
   requireAuth(user);
 
-  const role = user?.role;
-  const allowedRoles = ["Admin", "Accountant", "Supervisor"];
-  if (!allowedRoles.includes(role) && !user?.allow_edit_dispatch) {
+  if (!user?.allow_edit_order_processing && !user?.allow_edit_billing && !user?.allow_edit_dispatch) {
     throw new ApiError(403, "You do not have permission to delete documents.");
   }
 

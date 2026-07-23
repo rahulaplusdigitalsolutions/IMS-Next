@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "APDS IMS",
+  title: "APDS-IMS",
   description: "A Plus Digital Solutions — Inventory Management System",
   icons: {
     icon: "/Apluslogo.jpeg",

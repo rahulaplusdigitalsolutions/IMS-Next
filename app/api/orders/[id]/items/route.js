@@ -20,7 +20,7 @@ export const POST = withErrorHandling(async (request, { params }) => {
   if (!orderRows.length) throw new ApiError(404, "Order not found");
   const order = orderRows[0];
 
-  const [serRows] = await mysqlPool.query("SELECT * FROM serials WHERE guid=? AND isDeleted=0 AND companyGuid=?", [newSerialId, user.companyId]);
+  const [serRows] = await mysqlPool.query("SELECT *, serialStatus as status, serialNumber as value FROM inventorystockinserial WHERE guid=? AND isDeleted=0 AND companyGuid=?", [newSerialId, user.companyId]);
   if (!serRows.length) throw new ApiError(404, "Serial not found");
   if (serRows[0].status !== "Available") throw new ApiError(400, "Selected serial is not Available");
 
@@ -30,11 +30,11 @@ export const POST = withErrorHandling(async (request, { params }) => {
   try {
     await conn.beginTransaction();
     await conn.query(
-      `INSERT INTO order_items (guid,companyGuid,orderGuid,serialNumberGuid,modelGuid,sellingPrice,warranty)
-       VALUES (?,?,?,?,?,?,?)`,
-      [newItemGuid, user.companyId, orderGuid, newSerialId, serRows[0].modelGuid, sellingPrice || 0, warranty || null]
+      `INSERT INTO order_items (guid,companyGuid,orderGuid,serialNumberGuid,modelGuid,itemVariantId,sellingPrice,warranty)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [newItemGuid, user.companyId, orderGuid, newSerialId, serRows[0].itemVariantId, serRows[0].itemVariantId, sellingPrice || 0, warranty || null]
     );
-    await conn.query("UPDATE serials SET status='Dispatched' WHERE guid=? AND companyGuid=?", [newSerialId, user.companyId]);
+    await conn.query("UPDATE inventorystockinserial SET serialStatus='Dispatched' WHERE guid=? AND companyGuid=?", [newSerialId, user.companyId]);
     await conn.commit();
   } catch (txErr) {
     await conn.rollback();
@@ -58,7 +58,7 @@ export const POST = withErrorHandling(async (request, { params }) => {
 
   const [newRow] = await mysqlPool.query(
     ORDER_SELECT + " WHERE oi.guid=? AND oi.companyGuid=?",
-    [user.companyId, user.companyId, user.companyId, user.companyId, user.companyId, user.companyId, user.companyId, newItemGuid, user.companyId]
+    [...Array(8).fill(user.companyId), newItemGuid, user.companyId]
   );
   return NextResponse.json({ message: "Serial added to order", item: mapDispatchRow(newRow[0]) }, { status: 201 });
 });

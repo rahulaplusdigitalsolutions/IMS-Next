@@ -73,7 +73,7 @@ export const POST = withErrorHandling(async (request) => {
     // (by name) so the Confirm-Order step can pre-select it instead of
     // forcing the user to pick it manually every time.
     const [catalogModels] = await conn.query(
-      "SELECT guid, name FROM models WHERE companyGuid = ? AND isDeleted = 0",
+      "SELECT itemVariantId as guid, variantName as name FROM inventoryitemvariant WHERE companyGuid = ? AND isDeleted = 0",
       [user.companyId]
     );
     // Contract text is free-form ("HP LaserJet Pro3004dw Printer with 1 year

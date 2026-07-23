@@ -12,11 +12,12 @@ export const POST = withErrorHandling(async (request) => {
   requireAuth(user);
   requireCompany(user);
 
-  const { CategoryId, CategoryName } = body;
+  const { CategoryId, CategoryName, ShowMrp } = body;
+  const showMrpBit = ShowMrp ? 1 : 0;
   if (CategoryId && CategoryId !== "0" && CategoryId !== 0 && CategoryId !== "") {
-    await mysqlPool.execute("UPDATE inventorycategorymaster SET categoryName = ? WHERE categoryId = ? AND companyGuid = ?", [CategoryName, CategoryId, user.companyId]);
+    await mysqlPool.execute("UPDATE inventorycategorymaster SET categoryName = ?, showMrp = ? WHERE categoryId = ? AND companyGuid = ?", [CategoryName, showMrpBit, CategoryId, user.companyId]);
   } else {
-    await mysqlPool.execute("INSERT INTO inventorycategorymaster (categoryId, companyGuid, categoryName) VALUES (?, ?, ?)", [uuidv4(), user.companyId, CategoryName]);
+    await mysqlPool.execute("INSERT INTO inventorycategorymaster (categoryId, companyGuid, categoryName, showMrp) VALUES (?, ?, ?, ?)", [uuidv4(), user.companyId, CategoryName, showMrpBit]);
   }
   return NextResponse.json({ message: "Success" });
 });

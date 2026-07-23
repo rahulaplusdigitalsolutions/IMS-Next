@@ -11,7 +11,7 @@ const MasterDropdown = ({ code, placeholder, value, onChange, className, disable
     useEffect(() => {
         const fetchOptions = async () => {
             try {
-                const token = localStorage.getItem("pt_auth_token");
+                const token = sessionStorage.getItem("pt_auth_token");
                 const response = await axios.get(`${API_BASE_URL}/api/dropdown/${code}`, {
                     headers: {
                         Authorization: `Bearer ${token}`

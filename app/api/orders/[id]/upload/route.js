@@ -16,8 +16,7 @@ export const POST = withErrorHandling(async (request, { params }) => {
   const docType = formData.get("docType");
   if (!file || typeof file.arrayBuffer !== "function") throw new ApiError(400, "No file uploaded");
 
-  const role = user?.role;
-  if (!canManageOrderDocuments(role, docType)) {
+  if (!canManageOrderDocuments(user, docType)) {
     throw new ApiError(403, "You cannot upload this document type.");
   }
 

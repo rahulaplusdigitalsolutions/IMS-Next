@@ -23,7 +23,7 @@ import { useCompany } from "@/lib/client/CompanyContext";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem("pt_auth_token");
+  const token = sessionStorage.getItem("pt_auth_token");
   return {
     headers: {
       "Content-Type": "application/json",
@@ -60,6 +60,7 @@ export default function NewDispatch({
   const [isProcessing, setIsProcessing] = useState(false);
 
   const [selectedCompany, setSelectedCompany] = useState("");
+  const [selectedItemName, setSelectedItemName] = useState("");
   const [selectedModelId, setSelectedModelId] = useState("");
   const [selectedPanelSerials, setSelectedPanelSerials] = useState([]);
   const [serialReturnWarning, setSerialReturnWarning] = useState("");
@@ -213,15 +214,34 @@ export default function NewDispatch({
       .replace(/[^A-Z0-9-]/g, "");
   };
 
+  // Item Master models carry an `itemName` (e.g. "Printer", "SSD") grouping
+  // multiple variants under one company — old-style Models rows don't have
+  // that concept, so each one is treated as its own single-variant "item"
+  // (grouped under its own name) for this same Company -> Item -> Model flow.
+  const getItemName = (model) => {
+    if (!model) return "Unknown";
+    return model.itemName || model.name || "Unknown";
+  };
+
   const companyOptions = useMemo(() => {
     const unique = [...new Set(models.map((m) => getCompanyName(m)).filter(Boolean))];
     return unique.sort((a, b) => a.localeCompare(b));
   }, [models]);
 
-  const filteredModelsByCompany = useMemo(() => {
+  const modelsByCompany = useMemo(() => {
     if (!selectedCompany) return [];
     return models.filter((m) => getCompanyName(m) === selectedCompany);
   }, [models, selectedCompany]);
+
+  const itemNameOptions = useMemo(() => {
+    const unique = [...new Set(modelsByCompany.map((m) => getItemName(m)).filter(Boolean))];
+    return unique.sort((a, b) => a.localeCompare(b));
+  }, [modelsByCompany]);
+
+  const filteredModelsByCompany = useMemo(() => {
+    if (!selectedCompany || !selectedItemName) return [];
+    return modelsByCompany.filter((m) => getItemName(m) === selectedItemName);
+  }, [modelsByCompany, selectedCompany, selectedItemName]);
 
   // Non-serialized order flow — items picked from Item Master (inventoryitemvariant),
   // the same catalog Stationery stock-out uses, not the printer Models catalog.
@@ -229,7 +249,13 @@ export default function NewDispatch({
     if (itemType !== "nonSerialized" || itemMasterVariants.length > 0) return;
     setLoadingItemMaster(true);
     inventoryService.getCurrentStock({ limit: 1000 })
-      .then((res) => setItemMasterVariants(Array.isArray(res?.data) ? res.data : []))
+      .then((res) => {
+        const rows = Array.isArray(res?.data) ? res.data : [];
+        // Only genuinely non-serialized items belong in this picker — items
+        // marked "Ask Serial No. = Yes" (isTrackable) need a serial pinned
+        // and are handled by the Serialized flow instead.
+        setItemMasterVariants(rows.filter((v) => !v.isTrackable));
+      })
       .catch((err) => console.error("Failed to load Item Master:", err.message))
       .finally(() => setLoadingItemMaster(false));
   }, [itemType, itemMasterVariants.length]);
@@ -241,6 +267,20 @@ export default function NewDispatch({
 
   useEffect(() => {
     if (!selectedCompany) {
+      setSelectedItemName("");
+      setSelectedModelId("");
+      setSelectedPanelSerials([]);
+      return;
+    }
+    if (selectedItemName && !itemNameOptions.includes(selectedItemName)) {
+      setSelectedItemName("");
+      setSelectedModelId("");
+      setSelectedPanelSerials([]);
+    }
+  }, [selectedCompany, selectedItemName, itemNameOptions]);
+
+  useEffect(() => {
+    if (!selectedItemName) {
       setSelectedModelId("");
       setSelectedPanelSerials([]);
       return;
@@ -252,7 +292,7 @@ export default function NewDispatch({
         setSelectedPanelSerials([]);
       }
     }
-  }, [selectedCompany, selectedModelId, filteredModelsByCompany]);
+  }, [selectedItemName, selectedModelId, filteredModelsByCompany]);
 
   useEffect(() => {
     if (!selectedCompany || !selectedModelId) {
@@ -265,7 +305,11 @@ export default function NewDispatch({
 
     const availableSerials = serials.filter((s) => {
       const serialStatus = String(s.status || "").trim().toLowerCase();
-      const modelMatch = String(s.modelGuid) === String(selectedModelId);
+      // Item Master models are keyed by itemVariantId (since duplicate old
+      // `models` rows are no longer returned) — but a serial's modelGuid may
+      // still hold the old models.guid (set via the migration link) rather
+      // than the itemVariantId itself, so match against either.
+      const modelMatch = String(s.modelGuid) === String(selectedModelId) || String(s.itemVariantId) === String(selectedModelId);
       const isAvailable = serialStatus === "available";
       const alreadyUsedInMultiple = selectedSerialIdsInBatch.includes(String(s.id));
       const alreadyUsedInSingle = singleSelectedSerialId === String(s.id);
@@ -2207,7 +2251,7 @@ export default function NewDispatch({
                 activeTab, batchList, companyOptions, filteredModelsByCompany,
                 getCompanyName, getSerialValue, models, processSerial, selectedCompany,
                 selectedModelId, selectedPanelSerials, setForm, setSelectedCompany,
-                setSelectedModelId,
+                setSelectedModelId, itemNameOptions, selectedItemName, setSelectedItemName,
               }}
             />
           </div>

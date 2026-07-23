@@ -30,8 +30,8 @@ export const POST = withErrorHandling(async (request) => {
 
     for (const item of items) {
       const [serialCheck] = await connection.query(
-        "SELECT s.status, s.value AS serialValue, m.packagingCost AS modelDefaultCost" +
-        " FROM serials s JOIN models m ON s.modelGuid COLLATE utf8mb4_unicode_ci = m.guid COLLATE utf8mb4_unicode_ci" +
+        "SELECT s.serialStatus AS status, s.serialNumber AS serialValue, itv.packagingCost AS modelDefaultCost" +
+        " FROM inventorystockinserial s JOIN inventoryitemvariant itv ON s.itemVariantId = itv.itemVariantId" +
         " WHERE s.guid = ? AND s.companyGuid = ?",
         [item.serialId, user.companyId]
       );

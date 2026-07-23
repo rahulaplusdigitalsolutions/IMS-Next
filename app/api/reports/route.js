@@ -27,14 +27,15 @@ export const GET = withErrorHandling(async (request) => {
            'Stock In' as status, IF(s.status=1,'Finalized','Draft') as logisticsStatus,
            0 as sellingPrice, SUM(d.purchaseRate*d.stockInQty*d.defaultPcsQty) as landingPrice,
            v.vendorFirmName as firmName, 'Inventory Inward' as customerName,
-           GROUP_CONCAT(DISTINCT IFNULL(i.itemName,m.name) SEPARATOR ', ') as modelName,
+           GROUP_CONCAT(DISTINCT IFNULL(i.itemName,mim.variantName) SEPARATOR ', ') as modelName,
            'NA' as serialValue, 'Stationery' as category, s.invoiceFile
     FROM inventorystockin s
     JOIN inventorystockindetail d ON s.stockInId=d.stockInId
     LEFT JOIN inventoryvendor v ON s.vendorId=v.vendorId
     LEFT JOIN inventoryitemvariant iv ON d.itemVariantId=iv.itemVariantId
     LEFT JOIN inventoryitemmaster i ON iv.itemId=i.itemId
-    LEFT JOIN models m ON d.modelGuid=m.guid
+    LEFT JOIN model_itemvariant_map map ON d.modelGuid COLLATE utf8mb4_unicode_ci = map.modelGuid COLLATE utf8mb4_unicode_ci
+    LEFT JOIN inventoryitemvariant mim ON map.itemVariantId COLLATE utf8mb4_unicode_ci = mim.itemVariantId COLLATE utf8mb4_unicode_ci
     ${s1.w} GROUP BY s.stockInId,v.vendorFirmName,s.invoiceNo,s.invoiceDate,s.status,s.invoiceFile
   `, s1.params);
 
@@ -42,11 +43,12 @@ export const GET = withErrorHandling(async (request) => {
   const [printerRows] = await mysqlPool.query(`
     SELECT oi.guid as _id, o.invoiceNumber as orderId, o.dispatchDate,
            o.status, ol.logisticsStatus, oi.sellingPrice, s.landingPrice,
-           o.platform AS firmName, o.orderid AS customerName, m.name as modelName, s.value as serialValue,
+           o.platform AS firmName, o.orderid AS customerName, itv.variantName as modelName, s.serialNumber as serialValue,
            'Printers' as category, o.invoiceFilename as invoiceFile, o.ewayBillFilename as ewayBillFile
     FROM order_items oi JOIN orders o ON oi.orderGuid=o.guid
     LEFT JOIN order_logistics ol ON o.guid=ol.orderGuid
-    LEFT JOIN serials s ON oi.serialNumberGuid=s.guid LEFT JOIN models m ON s.modelGuid=m.guid
+    LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid=s.guid
+    LEFT JOIN inventoryitemvariant itv ON s.itemVariantId=itv.itemVariantId
     ${s2.w}
   `, s2.params);
 
@@ -55,14 +57,14 @@ export const GET = withErrorHandling(async (request) => {
     SELECT s.guid as _id, IFNULL(st.invoiceNo,'Stock In') as orderId, s.createdAt as dispatchDate,
            'Stock In' as status, 'Finalized' as logisticsStatus,
            0 as sellingPrice, s.landingPrice, IFNULL(v.vendorFirmName,'Internal') as firmName,
-           'Inventory Inward' as customerName, m.name as modelName, s.value as serialValue,
+           'Inventory Inward' as customerName, itv.variantName as modelName, s.serialNumber as serialValue,
            'Printers' as category, MAX(st.invoiceFile) as invoiceFile
-    FROM serials s LEFT JOIN models m ON s.modelGuid=m.guid
-    LEFT JOIN inventorystockinserial s_in ON s.value=s_in.serialNumber AND s_in.isDeleted=0
-    LEFT JOIN inventorystockindetail st_d ON s_in.stockInDetailId=st_d.stockInDetailId
+    FROM inventorystockinserial s
+    LEFT JOIN inventoryitemvariant itv ON s.itemVariantId=itv.itemVariantId
+    LEFT JOIN inventorystockindetail st_d ON s.stockInDetailId=st_d.stockInDetailId
     LEFT JOIN inventorystockin st ON st_d.stockInId=st.stockInId
     LEFT JOIN inventoryvendor v ON st.vendorId=v.vendorId
-    ${s3.w} GROUP BY s.guid,s.createdAt,s.landingPrice,m.name,s.value,st.invoiceNo,v.vendorFirmName
+    ${s3.w} GROUP BY s.guid,s.createdAt,s.landingPrice,itv.variantName,s.serialNumber,st.invoiceNo,v.vendorFirmName
   `, s3.params);
 
   const s4 = buildWhere(" WHERE o.isDeleted=0", "o.issueDate", true);
@@ -84,7 +86,7 @@ export const GET = withErrorHandling(async (request) => {
   const [statStock] = await mysqlPool.query(
     "SELECT SUM(availablePCS*IFNULL(NULLIF(lastPurchaseRate,0),IFNULL(avgPurchaseRate,0))) as total FROM inventoryvariantstock ivs JOIN inventoryitemvariant iv ON ivs.itemVariantId=iv.itemVariantId WHERE iv.isDeleted=0"
   );
-  const [printStock] = await mysqlPool.query("SELECT SUM(IFNULL(landingPrice,0)) as total FROM serials WHERE status='Available' AND isDeleted=0");
+  const [printStock] = await mysqlPool.query("SELECT SUM(IFNULL(landingPrice,0)) as total FROM inventorystockinserial WHERE serialStatus='Available' AND isDeleted=0");
 
   const transactions = [...stationeryRows, ...printerRows, ...stockInRows, ...stockOutRows].sort((a, b) => new Date(b.dispatchDate) - new Date(a.dispatchDate));
   return NextResponse.json({

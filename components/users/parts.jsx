@@ -1,9 +1,9 @@
 "use client";
 import React from "react";
-import { ROLE_CONFIG } from "./constants";
+import { roleConfigFor } from "./constants";
 
 export const RoleBadge = ({ role, label, size = "sm" }) => {
-  const cfg = ROLE_CONFIG[role] || { bg: "bg-slate-100", text: "text-slate-700", border: "border-slate-200" };
+  const cfg = roleConfigFor(role);
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full font-bold border ${cfg.bg} ${cfg.text} ${cfg.border} ${size === "sm" ? "text-[10px] uppercase tracking-wider" : "text-xs"}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
@@ -13,7 +13,7 @@ export const RoleBadge = ({ role, label, size = "sm" }) => {
 };
 
 export const Avatar = ({ name, role, size = "md" }) => {
-  const cfg = ROLE_CONFIG[role] || { avatar: "bg-slate-100 text-slate-600 border-slate-200" };
+  const cfg = roleConfigFor(role);
   const initials = name ? name.substring(0, 2).toUpperCase() : "?";
   const sz = size === "lg" ? "w-14 h-14 text-xl" : size === "sm" ? "w-8 h-8 text-xs" : "w-11 h-11 text-sm";
   return (

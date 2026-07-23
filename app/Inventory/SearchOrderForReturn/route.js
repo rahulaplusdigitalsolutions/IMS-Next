@@ -48,13 +48,13 @@ export const GET = withErrorHandling(async (request) => {
   const [legacyOrders] = await mysqlPool.query(`
     SELECT
         oi.guid as dispatchGuid, o.invoiceNumber, ol.trackingId, o.dispatchDate, o.platform as firmName, o.orderid as customerName,
-        sn.value as serialNumber, m.name as modelName, o.ewayBillNumber
+        sn.serialNumber as serialNumber, fbiv.variantName as modelName, o.ewayBillNumber
     FROM order_items oi
     JOIN orders o ON oi.orderGuid = o.guid
     LEFT JOIN order_logistics ol ON o.guid = ol.orderGuid
-    LEFT JOIN serials sn ON oi.serialNumberGuid = sn.guid
-    LEFT JOIN models m ON sn.modelGuid = m.guid
-    WHERE (o.invoiceNumber LIKE ? OR ol.trackingId LIKE ? OR sn.value = ? OR o.ewayBillNumber = ? OR CAST(oi.guid AS CHAR) = ?) AND o.isDeleted = 0
+    LEFT JOIN inventorystockinserial sn ON oi.serialNumberGuid = sn.guid
+    LEFT JOIN inventoryitemvariant fbiv ON sn.itemVariantId = fbiv.itemVariantId
+    WHERE (o.invoiceNumber LIKE ? OR ol.trackingId LIKE ? OR sn.serialNumber = ? OR o.ewayBillNumber = ? OR CAST(oi.guid AS CHAR) = ?) AND o.isDeleted = 0
   `, [`%${decodedQuery}%`, `%${decodedQuery}%`, decodedQuery, decodedQuery, decodedQuery]);
 
   if (legacyOrders.length > 0) {
@@ -119,10 +119,10 @@ export const GET = withErrorHandling(async (request) => {
 
   if (bulkOrders.length > 0) {
     const [bulkItems] = await mysqlPool.query(`
-        SELECT bi.serialNumberGuid, s.value as serialNumber, m.name as modelName
+        SELECT bi.serialNumberGuid, s.serialNumber as serialNumber, fbiv.variantName as modelName
         FROM bulkorderitems bi
-        JOIN serials s ON bi.serialNumberGuid = s.guid
-        JOIN models m ON s.modelGuid = m.guid
+        JOIN inventorystockinserial s ON bi.serialNumberGuid = s.guid
+        LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId = fbiv.itemVariantId
         WHERE bi.orderGuid = ? AND bi.itemStatus = 'Active'
     `, [bulkOrders[0].bulkOrderId]);
 

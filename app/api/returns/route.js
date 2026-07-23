@@ -18,11 +18,11 @@ export const GET = withErrorHandling(async (request) => {
 
   const [printerRows] = await mysqlPool.query(`
     SELECT r.guid as id, r.serialNumberGuid as serialNumberId,
-           COALESCE(NULLIF(r.serialValue,''), s.value, '') as serialValue,
+           COALESCE(NULLIF(r.serialValue,''), s.serialNumber, '') as serialValue,
            r.condition, r.returnDate, r.returnedBy, r.platform AS firmName, r.orderid AS customerName,
-           r.reason, r.repairCost, r.returnCount, r.dispatchGuid, m.name as modelName,
+           r.reason, r.repairCost, r.returnCount, r.dispatchGuid, itv.variantName as modelName,
            0 as refundAmount, r.rowColor, r.tags
-    FROM returns r LEFT JOIN serials s ON r.serialNumberGuid=s.guid ${c("s")} LEFT JOIN models m ON s.modelGuid=m.guid ${c("m")}
+    FROM returns r LEFT JOIN inventorystockinserial s ON r.serialNumberGuid=s.guid ${c("s")} LEFT JOIN inventoryitemvariant itv ON s.itemVariantId=itv.itemVariantId ${c("itv")}
     WHERE r.isDeleted=0 ${w("r")}
   `, cid ? [cid, cid, cid] : []);
   const [stationeryRows] = await mysqlPool.query(`
@@ -56,12 +56,16 @@ export const POST = withErrorHandling(async (request) => {
     await conn.beginTransaction();
 
     const [serialCheck] = await conn.query(
-      "SELECT s.guid, s.status, s.modelGuid, s.value as serialValue, s.returnCount, m.name as modelName FROM serials s JOIN models m ON s.modelGuid=m.guid AND m.companyGuid=? WHERE UPPER(s.value)=? AND s.isDeleted=0 AND s.companyGuid=? FOR UPDATE",
+      `SELECT s.guid, s.serialStatus, s.modelGuid, s.itemVariantId, s.serialNumber as serialValue, s.returnCount,
+              itv.variantName as modelName
+       FROM inventorystockinserial s
+       LEFT JOIN inventoryitemvariant itv ON s.itemVariantId=itv.itemVariantId AND itv.companyGuid=?
+       WHERE UPPER(s.serialNumber)=? AND s.isDeleted=0 AND s.companyGuid=? FOR UPDATE`,
       [cid, trimmed.toUpperCase(), cid]
     );
     if (!serialCheck.length) { await conn.rollback(); throw new ApiError(404, `Serial number "${trimmed}" not found`); }
     const serial = serialCheck[0];
-    if (serial.status !== "Dispatched") { await conn.rollback(); throw new ApiError(400, `Cannot return: Item status is "${serial.status}"`); }
+    if (serial.serialStatus !== "Dispatched") { await conn.rollback(); throw new ApiError(400, `Cannot return: Item status is "${serial.serialStatus}"`); }
 
     const VALID_CONDITIONS = ["Good", "InStock", "Damaged"];
     const rawCondition = condition || "Good";
@@ -95,7 +99,7 @@ export const POST = withErrorHandling(async (request) => {
         dispatch.firmName || null, dispatch.customerName || null, returnCount, dispatch.guid, dispatch.invoiceNumber || null, String(reason || "").trim()]
     );
 
-    await conn.query("UPDATE serials SET status=?, returnCount=? WHERE guid=? AND companyGuid=?", [newStatus, returnCount, serial.guid, cid]);
+    await conn.query("UPDATE inventorystockinserial SET serialStatus=?, returnCount=? WHERE guid=? AND companyGuid=?", [newStatus, returnCount, serial.guid, cid]);
 
     const [itemCheck] = await conn.query("SELECT orderGuid FROM order_items WHERE guid=? AND companyGuid=?", [dispatch.guid, cid]);
     if (itemCheck.length) {

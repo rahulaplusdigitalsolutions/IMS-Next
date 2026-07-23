@@ -9,7 +9,9 @@ export const POST = withErrorHandling(async (request) => {
   if (!username || !password) throw new ApiError(400, "Username and password are required.");
 
   const [rows] = await mysqlPool.query(
-    "SELECT * FROM users WHERE (username=? OR email=?) LIMIT 1",
+    `SELECT u.*, r.permissions as rolePermissions, r.editPermissions as roleEditPermissions
+     FROM users u LEFT JOIN roles r ON u.roleId = r.guid AND r.isDeleted = 0
+     WHERE (u.username=? OR u.email=?) LIMIT 1`,
     [safeStr(username, ""), safeStr(username, "")]
   );
   if (rows.length === 0) throw new ApiError(401, "Invalid credentials");

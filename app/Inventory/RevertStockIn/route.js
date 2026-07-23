@@ -24,24 +24,17 @@ export const POST = withErrorHandling(async (request) => {
     `, [stockInId]);
 
     for (const item of details) {
-      if (item.modelGuid) {
-        const [serials] = await connection.query("SELECT serialNumber FROM inventorystockinserial WHERE stockInDetailId = ? AND isDeleted = 0", [item.stockInDetailId]);
-        for (const s of serials) {
-          const [check] = await connection.query("SELECT status FROM serials WHERE value = ? AND isDeleted = 0 LIMIT 1", [s.serialNumber]);
-          if (check.length > 0 && check[0].status !== "Available") {
-            throw new Error(`Cannot revert: Serial ${s.serialNumber} is already ${check[0].status}.`);
-          }
-          await connection.execute("DELETE FROM serials WHERE value = ? AND isDeleted = 0", [s.serialNumber]);
-        }
-      } else if (item.itemVariantId) {
-        const [itemSerials] = await connection.query("SELECT serialNumber FROM inventorystockinserial WHERE stockInDetailId = ? AND isDeleted = 0", [item.stockInDetailId]);
+      if (item.itemVariantId) {
+        const [itemSerials] = await connection.query("SELECT serialNumber, serialStatus FROM inventorystockinserial WHERE stockInDetailId = ? AND isDeleted = 0", [item.stockInDetailId]);
         if (item.useSerialTab && itemSerials.length > 0) {
           for (const s of itemSerials) {
-            const [check] = await connection.query("SELECT status FROM serials WHERE value = ? AND isDeleted = 0 LIMIT 1", [s.serialNumber]);
-            if (check.length > 0 && check[0].status !== "Available") {
-              throw new Error(`Cannot revert: Serial ${s.serialNumber} is already ${check[0].status}.`);
+            if (s.serialStatus && s.serialStatus !== "Available") {
+              throw new Error(`Cannot revert: Serial ${s.serialNumber} is already ${s.serialStatus}.`);
             }
-            await connection.execute("DELETE FROM serials WHERE value = ? AND isDeleted = 0", [s.serialNumber]);
+            await connection.execute(
+              "UPDATE inventorystockinserial SET guid = NULL, companyGuid = NULL, godownGuid = NULL, landingPrice = 0, serialStatus = 'Available' WHERE stockInDetailId = ? AND serialNumber = ?",
+              [item.stockInDetailId, s.serialNumber]
+            );
           }
         } else {
           const qty = item.stockInQty * item.defaultPcsQty;
@@ -54,6 +47,13 @@ export const POST = withErrorHandling(async (request) => {
             throw new Error(stockRow
               ? `Cannot revert: available stock (${stockRow.availablePCS}) is less than the stock-in quantity (${qty}) — some may have already been issued.`
               : `Stock record not found for item variant ${item.itemVariantId}`);
+          }
+
+          if (item.godownGuid) {
+            await connection.execute(
+              "UPDATE inventorygodownstock SET availablePCS = availablePCS - ? WHERE itemVariantId = ? AND godownGuid = ? AND availablePCS >= ?",
+              [qty, item.itemVariantId, item.godownGuid, qty]
+            );
           }
         }
       }

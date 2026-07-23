@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { mysqlPool } from "@/lib/db";
-import { authenticateRequest, ApiError } from "@/lib/auth";
-import { sanitizeUser, normalizeRole, safeStr, hashPassword } from "@/lib/helpers";
+import { authenticateRequest, isSuperUser, ApiError } from "@/lib/auth";
+import { sanitizeUser, safeStr, hashPassword } from "@/lib/helpers";
 import { withErrorHandling, parseJsonBody } from "@/lib/apiResponse";
 
 async function getUserCount() {
@@ -11,19 +11,23 @@ async function getUserCount() {
 
 export const POST = withErrorHandling(async (request) => {
   const user = await authenticateRequest(request);
-  const { username, password, role } = await parseJsonBody(request);
+  const { username, password } = await parseJsonBody(request);
   const safeUsername = safeStr(username, "");
   if (!safeUsername || !password) throw new ApiError(400, "Username and password are required.");
 
   const total = await getUserCount();
-  if (total > 0 && normalizeRole(user?.role) !== "Admin") {
+  if (total > 0 && !isSuperUser(user?.role)) {
     throw new ApiError(403, "Only Admin can create users.");
   }
 
   const [check] = await mysqlPool.query("SELECT userid FROM users WHERE username=?", [safeUsername]);
   if (check.length > 0) throw new ApiError(400, "Username already exists.");
 
-  const requestedRole = total === 0 ? "Admin" : normalizeRole(role);
+  // This page only ever bootstraps the first Admin account now — assigning
+  // any other role happens on the Users page, where a real role (from
+  // Manage Roles) can be picked. A signup after setup with no role picker
+  // just creates an unassigned account an Admin must assign a role to.
+  const requestedRole = total === 0 ? "Admin" : "";
   const hashed = await hashPassword(password);
 
   await mysqlPool.query(

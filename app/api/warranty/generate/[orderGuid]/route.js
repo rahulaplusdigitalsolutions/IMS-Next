@@ -24,12 +24,14 @@ export const GET = withErrorHandling(async (request, { params }) => {
       o.contactNumber, o.altContactNumber,
       o.invoiceNumber, o.gstNumber,
       oi.sellingPrice, oi.warranty, oi.quantity,
-      s.value AS serialValue,
-      m.name  AS modelName, m.company AS companyName
+      s.serialNumber AS serialValue,
+      fbiv.variantName AS modelName, fbbm.brandName AS companyName
     FROM orders o
     LEFT JOIN order_items oi ON oi.orderGuid = o.guid AND oi.companyGuid = o.companyGuid
-    LEFT JOIN serials s      ON oi.serialNumberGuid = s.guid AND s.companyGuid = o.companyGuid
-    LEFT JOIN models m       ON s.modelGuid = m.guid AND m.companyGuid = o.companyGuid
+    LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid = s.guid AND s.companyGuid = o.companyGuid
+    LEFT JOIN inventoryitemvariant fbiv ON s.itemVariantId = fbiv.itemVariantId AND fbiv.companyGuid = o.companyGuid
+    LEFT JOIN inventoryitemmaster fbim ON fbiv.itemId = fbim.itemId AND fbim.companyGuid = o.companyGuid
+    LEFT JOIN inventorybrandmaster fbbm ON fbim.brandId = fbbm.brandId AND fbbm.companyGuid = o.companyGuid
     WHERE o.guid = ? AND o.companyGuid = ?
     LIMIT 1
   `, [orderGuid, user.companyId]);
@@ -38,13 +40,13 @@ export const GET = withErrorHandling(async (request, { params }) => {
   const order = orderRows[0];
 
   const [allSerialRows] = await mysqlPool.query(`
-    SELECT s.value
+    SELECT s.serialNumber
     FROM order_items oi
-    LEFT JOIN serials s ON oi.serialNumberGuid = s.guid AND s.companyGuid = oi.companyGuid
-    WHERE oi.orderGuid = ? AND s.value IS NOT NULL AND oi.companyGuid = ?
-    ORDER BY s.value
+    LEFT JOIN inventorystockinserial s ON oi.serialNumberGuid = s.guid AND s.companyGuid = oi.companyGuid
+    WHERE oi.orderGuid = ? AND s.serialNumber IS NOT NULL AND oi.companyGuid = ?
+    ORDER BY s.serialNumber
   `, [orderGuid, user.companyId]);
-  order.allSerials = allSerialRows.map((r) => r.value).join(", ");
+  order.allSerials = allSerialRows.map((r) => r.serialNumber).join(", ");
   order.serialCount = allSerialRows.length || order.quantity || 1;
 
   const [tplRows] = await mysqlPool.query("SELECT * FROM warranty_template WHERE companyGuid=? LIMIT 1", [user.companyId]);

@@ -71,7 +71,7 @@ const StockOut = () => {
   const [totalRecords, setTotalRecords] = useState(0);
 
   const getHeaders = () => {
-    const token = localStorage.getItem("pt_auth_token");
+    const token = sessionStorage.getItem("pt_auth_token");
     return {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
@@ -495,7 +495,7 @@ const StockOut = () => {
         formData.append("file", invoiceFile);
         const uploadRes = await axios.post(`${API_BASE_URL}/Inventory/UploadStockOutInvoice`, formData, {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("pt_auth_token")}`, // ✅ Auth only
+            Authorization: `Bearer ${sessionStorage.getItem("pt_auth_token")}`, // ✅ Auth only
             // DO NOT set Content-Type — let Axios set it automatically with the correct boundary
           }
         });
@@ -509,7 +509,7 @@ const StockOut = () => {
         OrderId: orderId || null,
         TrackingId: trackingId || null,
         IssueDate: new Date().toISOString(),
-        IssuedBy: JSON.parse(localStorage.getItem("pt_user"))?.username || "System",
+        IssuedBy: JSON.parse(sessionStorage.getItem("pt_user"))?.username || "System",
         Items: cartItems.map(item => ({
           itemVariantId: item.itemVariantId,
           issueQty: item.issueQty,

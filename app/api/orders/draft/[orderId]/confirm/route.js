@@ -60,27 +60,31 @@ export const POST = withErrorHandling(async (request, { params }) => {
       const quantity = Number(draftItem.quantity) || 1;
 
       if (nonSerialized) {
-        const [modelRows] = await conn.query(
-          "SELECT stockQuantity, isSerialized FROM models WHERE guid = ? AND companyGuid = ? FOR UPDATE",
-          [modelGuid, user.companyId]
+        // The picker's `modelGuid` is an itemVariantId (the established
+        // convention for Item-Master-only products, same as everywhere else
+        // in the app — the legacy `models` table has been retired).
+        const [variantRows] = await conn.query(
+          "SELECT v.itemVariantId, i.isTrackable FROM inventoryitemvariant v JOIN inventoryitemmaster i ON v.itemId = i.itemId WHERE v.itemVariantId = ? AND v.isDeleted = 0",
+          [modelGuid]
         );
-        if (!modelRows.length) throw new ApiError(404, "Selected model not found.");
-        if (modelRows[0].isSerialized) throw new ApiError(400, "Selected model is serialized — pick serial numbers for it instead.");
-        if (Number(modelRows[0].stockQuantity) < quantity) {
-          throw new ApiError(400, `Not enough stock — only ${modelRows[0].stockQuantity} available for this model.`);
-        }
+        if (!variantRows.length) throw new ApiError(404, "Selected model not found.");
+        if (variantRows[0].isTrackable) throw new ApiError(400, "Selected item is serialized — pick serial numbers for it instead.");
 
-        await conn.query(
-          "UPDATE models SET stockQuantity = stockQuantity - ? WHERE guid = ? AND companyGuid = ?",
-          [quantity, modelGuid, user.companyId]
+        const [stockResult] = await conn.query(
+          "UPDATE inventoryvariantstock SET availablePCS = availablePCS - ? WHERE itemVariantId = ? AND availablePCS >= ?",
+          [quantity, modelGuid, quantity]
         );
+        if (stockResult.affectedRows === 0) {
+          const [[stockRow]] = await conn.query("SELECT availablePCS FROM inventoryvariantstock WHERE itemVariantId = ?", [modelGuid]);
+          throw new ApiError(400, stockRow ? `Not enough stock — only ${stockRow.availablePCS} available for this item.` : "Stock record not found for this item.");
+        }
 
         const newItemGuid = randomUUID();
         await conn.query(
           `INSERT INTO order_items
-             (guid,companyGuid,orderGuid,modelGuid,sellingPrice,quantity,contractFilename,remarks,warranty)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
-          [newItemGuid, user.companyId, orderId, modelGuid, Number(draftItem.sellingPrice) || 0, quantity, draftItem.contractFilename || null, draftItem.remarks || null, draftItem.warranty || null]
+             (guid,companyGuid,orderGuid,modelGuid,itemVariantId,sellingPrice,quantity,contractFilename,remarks,warranty)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          [newItemGuid, user.companyId, orderId, modelGuid, modelGuid, Number(draftItem.sellingPrice) || 0, quantity, draftItem.contractFilename || null, draftItem.remarks || null, draftItem.warranty || null]
         );
 
         await conn.query("DELETE FROM order_items WHERE guid = ? AND companyGuid = ?", [draftItemGuid, user.companyId]);
@@ -92,25 +96,34 @@ export const POST = withErrorHandling(async (request, { params }) => {
       }
       const perUnitPrice = (Number(draftItem.sellingPrice) || 0) / quantity;
 
+      // `modelGuid` here may be a real legacy `models` row's guid — resolve it
+      // to its migrated itemVariantId (same convention used elsewhere) since
+      // inventorystockinserial only ever keys off itemVariantId.
+      const [mappedModel] = await conn.query(
+        "SELECT itemVariantId FROM model_itemvariant_map WHERE modelGuid COLLATE utf8mb4_unicode_ci = ?",
+        [modelGuid]
+      );
+      const resolvedItemVariantId = mappedModel[0]?.itemVariantId || modelGuid;
+
       for (const serialGuid of serialGuids) {
         const [serialRows] = await conn.query(
-          "SELECT status, value, modelGuid FROM serials WHERE guid = ? AND companyGuid = ? FOR UPDATE",
+          "SELECT serialStatus as status, serialNumber as value, itemVariantId FROM inventorystockinserial WHERE guid = ? AND companyGuid = ? FOR UPDATE",
           [serialGuid, user.companyId]
         );
         if (!serialRows.length) throw new ApiError(404, `Serial ${serialGuid} not found.`);
         if (serialRows[0].status !== "Available") throw new ApiError(400, `Serial ${serialRows[0].value} is not available.`);
-        if (String(serialRows[0].modelGuid) !== String(modelGuid)) {
+        if (String(serialRows[0].itemVariantId) !== String(resolvedItemVariantId)) {
           throw new ApiError(400, `Serial ${serialRows[0].value} does not belong to the selected model.`);
         }
 
-        await conn.query("UPDATE serials SET status = 'Dispatched' WHERE guid = ? AND companyGuid = ?", [serialGuid, user.companyId]);
+        await conn.query("UPDATE inventorystockinserial SET serialStatus = 'Dispatched' WHERE guid = ? AND companyGuid = ?", [serialGuid, user.companyId]);
 
         const newItemGuid = randomUUID();
         await conn.query(
           `INSERT INTO order_items
-             (guid,companyGuid,orderGuid,serialNumberGuid,modelGuid,sellingPrice,contractFilename,remarks,warranty)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
-          [newItemGuid, user.companyId, orderId, serialGuid, modelGuid, perUnitPrice, draftItem.contractFilename || null, draftItem.remarks || null, draftItem.warranty || null]
+             (guid,companyGuid,orderGuid,serialNumberGuid,modelGuid,itemVariantId,sellingPrice,contractFilename,remarks,warranty)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          [newItemGuid, user.companyId, orderId, serialGuid, modelGuid, serialRows[0].itemVariantId, perUnitPrice, draftItem.contractFilename || null, draftItem.remarks || null, draftItem.warranty || null]
         );
 
         await conn.query(

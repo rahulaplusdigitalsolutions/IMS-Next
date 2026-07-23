@@ -17,10 +17,8 @@ export const POST = withErrorHandling(async (request) => {
     await connection.beginTransaction();
     await connection.execute("UPDATE inventorystockin SET status = 1, finalizedOn = CURRENT_TIMESTAMP WHERE stockInId = ?", [stockInId]);
 
-    const [stockInRows] = await connection.query("SELECT vendorId FROM inventorystockin WHERE stockInId = ?", [stockInId]);
-    const stockInVendorId = stockInRows[0]?.vendorId || null;
     const [details] = await connection.query(`
-      SELECT d.*, i.useSerialTab
+      SELECT d.*, i.isTrackable
       FROM inventorystockindetail d
       LEFT JOIN inventoryitemvariant v ON d.itemVariantId = v.itemVariantId
       LEFT JOIN inventoryitemmaster i ON v.itemId = i.itemId
@@ -28,28 +26,34 @@ export const POST = withErrorHandling(async (request) => {
     `, [stockInId]);
 
     for (const item of details) {
-      if (item.modelGuid) {
-        const [serials] = await connection.query("SELECT serialNumber FROM inventorystockinserial WHERE stockInDetailId = ? AND isDeleted = 0", [item.stockInDetailId]);
-        for (const s of serials) {
-          await connection.execute(
-            "INSERT INTO serials (guid, companyGuid, modelGuid, godownGuid, value, landingPrice, vendorId, stockInId, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, 'Available', 0, NOW())",
-            [user.companyId, item.modelGuid, item.godownGuid || null, s.serialNumber, item.purchaseRate || 0, stockInVendorId, stockInId]
-          );
-        }
-      } else if (item.itemVariantId) {
-        const [itemSerials] = await connection.query("SELECT serialNumber FROM inventorystockinserial WHERE stockInDetailId = ? AND isDeleted = 0", [item.stockInDetailId]);
-        if (item.useSerialTab && itemSerials.length > 0) {
-          const [modelLink] = await connection.query(
-            "SELECT linkedModelGuid FROM model_approval_requests WHERE variantId = ? AND status = 'approved' AND linkedModelGuid IS NOT NULL AND isDeleted = 0 LIMIT 1",
-            [item.itemVariantId]
-          );
-          const serialModelGuid = modelLink.length > 0 && modelLink[0].linkedModelGuid ? modelLink[0].linkedModelGuid : item.itemVariantId;
-          for (const s of itemSerials) {
+      const [stagedSerials] = await connection.query(
+        "SELECT serialNumber FROM inventorystockinserial WHERE stockInDetailId = ? AND isDeleted = 0",
+        [item.stockInDetailId]
+      );
+
+      if (item.itemVariantId) {
+        // Item Master variants marked "Ask Serial No. = Yes" (isTrackable):
+        // if serials were scanned in Stock In, register each individually and
+        // keep inventoryvariantstock's availablePCS in sync (Current Stock
+        // reads from there). Non-trackable / no-serials-scanned lines are
+        // booked as plain quantity, same as before.
+        if (item.isTrackable && stagedSerials.length > 0) {
+          for (const s of stagedSerials) {
             await connection.execute(
-              "INSERT INTO serials (guid, companyGuid, modelGuid, godownGuid, value, landingPrice, vendorId, stockInId, status, isDeleted, createdAt) VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, 'Available', 0, NOW())",
-              [user.companyId, serialModelGuid, item.godownGuid || null, s.serialNumber, item.purchaseRate || 0, stockInVendorId, stockInId]
+              "UPDATE inventorystockinserial SET guid = UUID(), companyGuid = ?, godownGuid = ?, landingPrice = ?, serialStatus = 'Available' WHERE stockInDetailId = ? AND serialNumber = ? AND isDeleted = 0",
+              [user.companyId, item.godownGuid || null, item.purchaseRate || 0, item.stockInDetailId, s.serialNumber]
             );
           }
+
+          const qty = stagedSerials.length;
+          await connection.execute(
+            `INSERT INTO inventoryvariantstock (itemVariantId, availablePCS, avgPurchaseRate, lastPurchaseRate) VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               avgPurchaseRate = ((availablePCS * avgPurchaseRate) + (VALUES(availablePCS) * VALUES(avgPurchaseRate))) / (availablePCS + VALUES(availablePCS)),
+               availablePCS = availablePCS + VALUES(availablePCS),
+               lastPurchaseRate = VALUES(lastPurchaseRate)`,
+            [item.itemVariantId, qty, item.purchaseRate, item.purchaseRate]
+          );
         } else {
           const qty = item.stockInQty * item.defaultPcsQty;
           await connection.execute(
@@ -60,6 +64,16 @@ export const POST = withErrorHandling(async (request) => {
                lastPurchaseRate = VALUES(lastPurchaseRate)`,
             [item.itemVariantId, qty, item.purchaseRate, item.purchaseRate]
           );
+
+          // Godown-wise breakdown for non-serialized stock (separate from the
+          // global total above) — powers the Godown Stock Transfer picker.
+          if (item.godownGuid) {
+            await connection.execute(
+              `INSERT INTO inventorygodownstock (itemVariantId, godownGuid, availablePCS) VALUES (?, ?, ?)
+               ON DUPLICATE KEY UPDATE availablePCS = availablePCS + VALUES(availablePCS)`,
+              [item.itemVariantId, item.godownGuid, qty]
+            );
+          }
         }
       }
     }

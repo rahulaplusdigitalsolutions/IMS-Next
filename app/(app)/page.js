@@ -122,8 +122,6 @@ export default function DashboardPage() {
   const currentUser = typeof window !== "undefined" ? getStoredUser() : null;
   const userRole = currentUser?.role || "User";
   const isAdmin = userRole === "Admin";
-  const isSupervisor = userRole === "Supervisor";
-  const isAccountant = userRole === "Accountant";
 
   // This inline dashboard filter is Admin only — deliberately narrower than
   // lib/auth.js's hasAllCompaniesAccess() (which also grants
@@ -261,8 +259,18 @@ export default function DashboardPage() {
     .sort((a, b) => b.stock - a.stock)
     .slice(0, 10);
 
-  const showReports = isAdmin || isAccountant || isSupervisor;
-  const showFinancials = isAdmin || isAccountant;
+  // Role-name-free: driven by the user's actual permission list (resolved
+  // from their assigned role in the DB), not a hardcoded role name.
+  // "reports" permission = Supervisor/Accountant-tier visibility;
+  // "billing" permission = financial-amount visibility (Accountant-tier);
+  // ops cards go to anyone who ISN'T billing-scoped (mirrors the old
+  // Supervisor/Operator/User vs Accountant split without naming any role).
+  const hasReportsAccess = isAdmin || !!currentUser?.permissions?.includes("reports");
+  const hasBillingAccess = isAdmin || !!currentUser?.permissions?.includes("billing");
+  const showReports = hasReportsAccess;
+  const showFinancials = hasBillingAccess;
+  const showOpsCards = isAdmin || !currentUser?.permissions?.includes("billing");
+  const showFinanceCards = hasReportsAccess;
 
   const inPeriod = (dateVal) => {
     const d = new Date(dateVal);
@@ -491,124 +499,144 @@ export default function DashboardPage() {
           <ArrowUpRight size={13} className="text-slate-300 group-hover:text-indigo-500 shrink-0 transition-all" />
         </div>
 
-        <div
-          onClick={() => onNavigate("dispatch")}
-          className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-amber-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
-        >
-          <div className="p-1.5 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg shadow-sm shadow-amber-500/30 shrink-0">
-            <Truck size={14} className="text-white" />
+        {showOpsCards && (
+          <div
+            onClick={() => onNavigate("dispatch")}
+            className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-amber-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
+          >
+            <div className="p-1.5 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg shadow-sm shadow-amber-500/30 shrink-0">
+              <Truck size={14} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Dispatched · {periodLabel}</p>
+              <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{todayDispatches}</h3>
+            </div>
+            <ArrowUpRight size={13} className="text-slate-300 group-hover:text-amber-500 shrink-0 transition-all" />
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Dispatched · {periodLabel}</p>
-            <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{todayDispatches}</h3>
-          </div>
-          <ArrowUpRight size={13} className="text-slate-300 group-hover:text-amber-500 shrink-0 transition-all" />
-        </div>
+        )}
 
-        <div
-          onClick={() => onNavigate("returns")}
-          className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-orange-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
-        >
-          <div className="p-1.5 bg-gradient-to-br from-orange-500 to-red-500 rounded-lg shadow-sm shadow-orange-500/30 shrink-0">
-            <RotateCcw size={14} className="text-white" />
+        {showOpsCards && (
+          <div
+            onClick={() => onNavigate("returns")}
+            className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-orange-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
+          >
+            <div className="p-1.5 bg-gradient-to-br from-orange-500 to-red-500 rounded-lg shadow-sm shadow-orange-500/30 shrink-0">
+              <RotateCcw size={14} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Returns · {periodLabel}</p>
+              <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{todayReturns}</h3>
+            </div>
+            <ArrowUpRight size={13} className="text-slate-300 group-hover:text-orange-500 shrink-0 transition-all" />
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Returns · {periodLabel}</p>
-            <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{todayReturns}</h3>
-          </div>
-          <ArrowUpRight size={13} className="text-slate-300 group-hover:text-orange-500 shrink-0 transition-all" />
-        </div>
+        )}
 
-        <div
-          onClick={() => onNavigate("stockIn")}
-          className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-emerald-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
-        >
-          <div className="p-1.5 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg shadow-sm shadow-emerald-500/30 shrink-0">
-            <ArrowDownCircle size={14} className="text-white" />
+        {showOpsCards && (
+          <div
+            onClick={() => onNavigate("stockIn")}
+            className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-emerald-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
+          >
+            <div className="p-1.5 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg shadow-sm shadow-emerald-500/30 shrink-0">
+              <ArrowDownCircle size={14} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Stock In · {periodLabel}</p>
+              <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{todayStockIn}</h3>
+            </div>
+            <ArrowUpRight size={13} className="text-slate-300 group-hover:text-emerald-500 shrink-0 transition-all" />
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Stock In · {periodLabel}</p>
-            <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{todayStockIn}</h3>
-          </div>
-          <ArrowUpRight size={13} className="text-slate-300 group-hover:text-emerald-500 shrink-0 transition-all" />
-        </div>
+        )}
 
-        <div
-          onClick={() => onNavigate("damaged")}
-          className="group relative bg-gradient-to-br from-red-50 to-rose-50 rounded-xl px-3 py-2.5 border border-red-100 shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden flex items-center gap-3"
-        >
-          <div className="p-1.5 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg shadow-sm shadow-red-500/30 shrink-0">
-            <AlertOctagon size={14} className="text-white" />
+        {showOpsCards && (
+          <div
+            onClick={() => onNavigate("damaged")}
+            className="group relative bg-gradient-to-br from-red-50 to-rose-50 rounded-xl px-3 py-2.5 border border-red-100 shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden flex items-center gap-3"
+          >
+            <div className="p-1.5 bg-gradient-to-br from-red-500 to-rose-600 rounded-lg shadow-sm shadow-red-500/30 shrink-0">
+              <AlertOctagon size={14} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wide">Damaged · {periodLabel}</p>
+              <h3 className="text-lg font-extrabold text-red-600 leading-tight">{periodDamagedCount}</h3>
+            </div>
+            <ArrowUpRight size={13} className="text-red-200 group-hover:text-red-500 shrink-0 transition-all" />
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wide">Damaged · {periodLabel}</p>
-            <h3 className="text-lg font-extrabold text-red-600 leading-tight">{periodDamagedCount}</h3>
-          </div>
-          <ArrowUpRight size={13} className="text-red-200 group-hover:text-red-500 shrink-0 transition-all" />
-        </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div
-          onClick={() => onNavigate("currentStock")}
-          className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-teal-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
-        >
-          <div className="p-1.5 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-lg shadow-sm shadow-teal-500/30 shrink-0">
-            <Package size={14} className="text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Stock Available · {fyLabel}</p>
-            <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{totalStockAvailable}</h3>
-          </div>
-          <ArrowUpRight size={13} className="text-slate-300 group-hover:text-teal-500 shrink-0 transition-all" />
-        </div>
+      {(showOpsCards || showFinanceCards) && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {showOpsCards && (
+            <div
+              onClick={() => onNavigate("currentStock")}
+              className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-teal-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
+            >
+              <div className="p-1.5 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-lg shadow-sm shadow-teal-500/30 shrink-0">
+                <Package size={14} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Stock Available · {fyLabel}</p>
+                <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{totalStockAvailable}</h3>
+              </div>
+              <ArrowUpRight size={13} className="text-slate-300 group-hover:text-teal-500 shrink-0 transition-all" />
+            </div>
+          )}
 
-        <div
-          onClick={() => onNavigate("billing")}
-          className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-rose-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
-        >
-          <div className="p-1.5 bg-gradient-to-br from-rose-500 to-pink-600 rounded-lg shadow-sm shadow-rose-500/30 shrink-0">
-            <Banknote size={14} className="text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Due Payments · {fyLabel}</p>
-            <h3 className="text-lg font-extrabold text-slate-800 leading-tight">
-              {showFinancials ? `₹${totalDuePayments.toLocaleString("en-IN")}` : duePaymentDispatches.length}
-            </h3>
-          </div>
-          <ArrowUpRight size={13} className="text-slate-300 group-hover:text-rose-500 shrink-0 transition-all" />
-        </div>
+          {showFinanceCards && (
+            <div
+              onClick={() => onNavigate("billing")}
+              className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-rose-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
+            >
+              <div className="p-1.5 bg-gradient-to-br from-rose-500 to-pink-600 rounded-lg shadow-sm shadow-rose-500/30 shrink-0">
+                <Banknote size={14} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Due Payments · {fyLabel}</p>
+                <h3 className="text-lg font-extrabold text-slate-800 leading-tight">
+                  {showFinancials ? `₹${totalDuePayments.toLocaleString("en-IN")}` : duePaymentDispatches.length}
+                </h3>
+              </div>
+              <ArrowUpRight size={13} className="text-slate-300 group-hover:text-rose-500 shrink-0 transition-all" />
+            </div>
+          )}
 
-        <div
-          onClick={() => onNavigate("billing")}
-          className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-yellow-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
-        >
-          <div className="p-1.5 bg-gradient-to-br from-yellow-500 to-amber-600 rounded-lg shadow-sm shadow-yellow-500/30 shrink-0">
-            <FileText size={14} className="text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Pending Bill · {fyLabel}</p>
-            <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{pendingBillCount}</h3>
-          </div>
-          <ArrowUpRight size={13} className="text-slate-300 group-hover:text-yellow-500 shrink-0 transition-all" />
-        </div>
+          {showFinanceCards && (
+            <div
+              onClick={() => onNavigate("billing")}
+              className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-yellow-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
+            >
+              <div className="p-1.5 bg-gradient-to-br from-yellow-500 to-amber-600 rounded-lg shadow-sm shadow-yellow-500/30 shrink-0">
+                <FileText size={14} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Pending Bill · {fyLabel}</p>
+                <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{pendingBillCount}</h3>
+              </div>
+              <ArrowUpRight size={13} className="text-slate-300 group-hover:text-yellow-500 shrink-0 transition-all" />
+            </div>
+          )}
 
-        <div
-          onClick={() => onNavigate("orderTracking")}
-          className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-violet-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
-        >
-          <div className="p-1.5 bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg shadow-sm shadow-violet-500/30 shrink-0">
-            <ShoppingCart size={14} className="text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Total Order · {fyLabel}</p>
-            <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{totalOrderCount}</h3>
-          </div>
-          <ArrowUpRight size={13} className="text-slate-300 group-hover:text-violet-500 shrink-0 transition-all" />
+          {showFinanceCards && (
+            <div
+              onClick={() => onNavigate("orderTracking")}
+              className="group relative bg-white rounded-xl px-3 py-2.5 border border-slate-200/60 shadow-sm hover:shadow-md hover:shadow-violet-500/10 transition-all cursor-pointer overflow-hidden flex items-center gap-3"
+            >
+              <div className="p-1.5 bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg shadow-sm shadow-violet-500/30 shrink-0">
+                <ShoppingCart size={14} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Total Order · {fyLabel}</p>
+                <h3 className="text-lg font-extrabold text-slate-800 leading-tight">{totalOrderCount}</h3>
+              </div>
+              <ArrowUpRight size={13} className="text-slate-300 group-hover:text-violet-500 shrink-0 transition-all" />
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4">
+      {(showOpsCards || showFinanceCards) && (
+      <div className={`grid grid-cols-1 ${showOpsCards && showFinanceCards ? "lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]" : ""} gap-4`}>
+        {showOpsCards && (
         <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
@@ -662,7 +690,9 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+        )}
 
+        {showFinanceCards && (
         <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -702,8 +732,11 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </div>
         </div>
+        )}
       </div>
+      )}
 
+      {showOpsCards && (
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4">
         <div className="bg-white rounded-xl border border-slate-200/60 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
@@ -794,7 +827,7 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-
+      )}
 
       {showStockModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
