@@ -5,7 +5,8 @@
       "name": "ims-next-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 3011
+      "port": 3011,
+      "autoPort": true
     }
   ]
 }
